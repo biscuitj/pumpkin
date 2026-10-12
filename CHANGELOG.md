@@ -16,6 +16,30 @@ How versions work:
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-12
+
+A pumpkin joins the display pets, and the clock drops the features a glucose
+clock doesn't need. The bridge is unchanged apart from the version.
+
+### Added
+- Firmware: **Patch the pumpkin**, a new display pet (id `7`). Smiles and
+  flutters its leaf in range, squashes down with a frown when low, flaps its
+  vine arms with an open mouth when high, closes its eyes in rest hours and
+  waves a vine to say hello. Same pixels in the web preview (parity-tested).
+  New clocks start with Patch; clocks that already have a pet keep it.
+
+### Removed
+- Firmware: **weather** (OpenWeatherMap screen, settings, "Test Weather API",
+  weather previews, the goldfish's weather effects). The clock no longer
+  contacts `api.openweathermap.org`.
+- Firmware: **Integrations**: push notifications (`POST /api/notify`,
+  `/notify.html`) and the system monitor screen (`POST /api/sysmon`).
+- Their settings are deleted from the clock's flash on the next save, including
+  a stored weather API key. A default screen of "weather" becomes blood sugar.
+  The screen numbers stay reserved, so `force_mode` values keep their meaning;
+  forcing one of the removed screens is ignored. Old `#weather` and
+  `#integrations` links open the Blood Sugar tab.
+
 ## [0.9.1] - 2026-10-12
 
 ### Fixed
@@ -301,6 +325,7 @@ Multiple clocks on one network. Firmware only; the Worker is unchanged.
 - Firmware: "Show Trend Screen" toggle (`trend_en`).
 
 [Unreleased]: #unreleased
+[0.10.0]: #0100---2026-10-12
 [0.9.1]: #091---2026-10-12
 [0.9.0]: #090---2026-10-12
 [0.8.0]: #080---2026-10-12

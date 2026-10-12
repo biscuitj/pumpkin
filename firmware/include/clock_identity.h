@@ -36,7 +36,7 @@ void clock_slug_with_suffix(const char* slug, int n, char* out, size_t out_size)
 
 // Settings that "copy settings to other clocks" sends. Display and alert
 // settings always; night/mute hours and the data source only when asked.
-// Wi-Fi, the clock name, brightness, weather and other per-room or secret
+// Wi-Fi, the clock name, brightness and other per-room or secret
 // settings are never copied.
 enum ClockCopyGroup : uint8_t {
     CLOCK_COPY_DISPLAY = 1,

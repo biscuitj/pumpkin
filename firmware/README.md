@@ -11,6 +11,8 @@ doesn't take upstream updates; see `LICENSE` and the project `CHANGELOG.md`.
 What's different from SugarClock:
 - **Bridge screens:** pump alerts (icons), sport mode, active insulin, clear
   pump alerts from the web page.
+- **Patch the pumpkin:** a pumpkin display pet, the default on a new clock.
+- **Leaner:** no weather screen, push notifications or system monitor.
 - **Night mode Full Mute:** black screen and a silent buzzer during night hours.
 - **Clocks on one network:** clock names, `name.local` addresses, a clock list
   and copying settings between clocks.
@@ -40,4 +42,3 @@ The version comes from `VERSION` (strict `major.minor.patch`) and is injected as
 - [AWTRIX3](https://blueforcer.github.io/awtrix3/#/), LED matrix firmware for the TC001 that inspired SugarClock
 - [pydexcom](https://github.com/gagebenne/pydexcom), Dexcom Share API reference
 - [nightscout-librelink-up](https://github.com/timoschlueter/nightscout-librelink-up), LibreLinkUp API reference
-- [OpenWeatherMap](https://openweathermap.org/), weather API

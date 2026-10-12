@@ -20,7 +20,7 @@ static unsigned long now_ms = 0, age_ms = 0;
 static int failures = 0, drawn_glucose = 0, delta_frames = 0, button_actions = 0;
 static uint16_t drawn_color = 0;
 static uint8_t frame_level = 0;
-static bool connected = true, ap_mode = false, notification = false, ever_received = true;
+static bool connected = true, ap_mode = false, ever_received = true;
 static NetCheckResult network = NC_OK, data_network = NC_OK;
 
 unsigned long millis() { return now_ms; }
@@ -49,9 +49,6 @@ const char* wifi_trial_ssid() { return "test"; }
 NetCheckResult netcheck_dns() { return network; }
 NetCheckResult netcheck_data() { return data_network; }
 const char* netcheck_summary() { return "offline"; }
-bool notify_has_active() { return notification; }
-bool notify_is_urgent() { return true; }
-const char* notify_get_text() { return "message"; }
 bool time_is_available() { return true; }
 int time_get_hour() { return 12; }
 int time_get_minute() { return 0; }
@@ -72,15 +69,8 @@ void stopwatch_toggle_start_pause() { ++button_actions; }
 void stopwatch_reset() { ++button_actions; }
 StopwatchState stopwatch_get_state() { return SW_IDLE; }
 int stopwatch_get_elapsed_sec() { return 0; }
-bool sysmon_has_data() { return true; }
-int sysmon_get_value() { return 50; }
-int sysmon_get_max() { return 100; }
-const char* sysmon_get_label() { return "CPU"; }
 bool countdown_is_configured() { return false; }
 long countdown_get_remaining_sec() { return 0; }
-bool weather_has_data() { return false; }
-const WeatherReading& weather_get_reading() { static WeatherReading wx = {}; return wx; }
-void weather_set_pre_fetch_callback(WeatherPreFetchCallback) {}
 static uint8_t set_level = 0, stale_level = 0;
 void display_set_brightness(uint8_t level) { set_level = level; }
 void display_set_transition_level(uint8_t level) { frame_level = level; }
@@ -119,17 +109,17 @@ static void assert_low_frame() {
 int main() {
     cfg.thresh_low = 80; cfg.thresh_urgent_low = 70; cfg.thresh_urgent_high = 250;
     cfg.stale_timeout_min = 20; cfg.auto_cycle_sec = 3;
-    cfg.time_display_enabled = true; cfg.weather_enabled = true;
+    cfg.time_display_enabled = true;
     cfg.timer_enabled = true; cfg.stopwatch_enabled = true;
-    cfg.ambient_enabled = true; cfg.sysmon_enabled = true; cfg.countdown_enabled = true;
-    cfg.notify_enabled = true; cfg.show_delta = true; cfg.default_mode = 1;
+    cfg.ambient_enabled = true; cfg.countdown_enabled = true;
+    cfg.show_delta = true; cfg.default_mode = 1;
     cfg.color_low = 0xFFAA00; cfg.color_stale = 0x808080;
     reading.valid = true; reading.glucose = 75; reading.force_mode = -1;
     engine_init(); tick(6000); settle();
     // Off by default: low readings don't change normal screen selection.
     assert(engine_get_state() == STATE_TIME_DISPLAY);
-    notification = true; settle();
-    assert(engine_get_state() == STATE_NOTIFY_DISPLAY);
+    engine_force_state(STATE_TIMER_DISPLAY); settle();
+    assert(engine_get_state() == STATE_TIMER_DISPLAY);
 
     cfg.glucose_only_when_low = true;
     cfg.auto_cycle_enabled = true;
@@ -137,7 +127,7 @@ int main() {
     transition_phase = TRANSITION_FADE_OUT; transition_level = 80;
     delta_flash_active = true; delta_flash_start_ms = now_ms;
     last_seen_glucose = 100;
-    engine_force_state(STATE_WEATHER_DISPLAY);
+    engine_force_state(STATE_TIMER_DISPLAY);
     reading.force_mode = STATE_AMBIENT_CREATURE_DISPLAY;
     strcpy(reading.message, "hello");
     assert_low_frame();
@@ -173,7 +163,6 @@ int main() {
     // Remove unrelated overrides to observe diagnostic precedence directly.
     cfg.auto_cycle_enabled = false;
     engine_clear_force(); reading.force_mode = -1; reading.message[0] = '\0';
-    notification = false;
     engine_set_default_mode(STATE_GLUCOSE_DISPLAY); engine_rebuild_toggle_order();
 
     // Freshness boundaries match urgent-glucose behavior. A stale low releases
@@ -253,11 +242,20 @@ int main() {
     // Preserve urgent-low handling even with misordered configured thresholds.
     cfg.thresh_low = 60; reading.glucose = 65; assert_low_frame();
     // Disabling the option while low restores normal override precedence.
-    cfg.glucose_only_when_low = false; notification = true; settle();
-    assert(engine_get_state() == STATE_NOTIFY_DISPLAY);
-    notification = false; cfg.auto_cycle_enabled = false;
-    engine_force_state(STATE_WEATHER_DISPLAY); settle();
-    assert(engine_get_state() == STATE_WEATHER_DISPLAY);
+    cfg.glucose_only_when_low = false; cfg.auto_cycle_enabled = false;
+    engine_force_state(STATE_TIMER_DISPLAY); settle();
+    assert(engine_get_state() == STATE_TIMER_DISPLAY);
+    // Removed features (weather, system monitor, notifications): their old
+    // states are never shown, whether forced by the web API or force_mode.
+    for (DisplayState gone : {STATE_WEATHER_DISPLAY, STATE_SYSMON_DISPLAY, STATE_NOTIFY_DISPLAY}) {
+        assert(engine_state_retired(gone));
+        engine_force_state(gone); settle();
+        assert(engine_get_state() != gone);
+        engine_clear_force(); reading.force_mode = gone; settle();
+        assert(engine_get_state() != gone);
+        reading.force_mode = -1;
+    }
+    assert(!engine_state_retired(STATE_TIMER_DISPLAY));
 
     // Stale screens stay visible at low brightness instead of looking switched off.
     engine_clear_force(); reading.force_mode = -1;

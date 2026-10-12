@@ -8,14 +8,14 @@ enum DisplayState {
     STATE_BOOT,
     STATE_GLUCOSE_DISPLAY,
     STATE_TIME_DISPLAY,
-    STATE_WEATHER_DISPLAY,
+    STATE_WEATHER_DISPLAY,   // retired in 0.10 (weather removed); value kept for force_mode
     STATE_TIMER_DISPLAY,
     STATE_STOPWATCH_DISPLAY,
-    STATE_SYSMON_DISPLAY,
+    STATE_SYSMON_DISPLAY,    // retired in 0.10 (system monitor removed); value kept
     STATE_COUNTDOWN_DISPLAY,
     STATE_TREND_DISPLAY,
     STATE_MESSAGE_DISPLAY,
-    STATE_NOTIFY_DISPLAY,
+    STATE_NOTIFY_DISPLAY,    // retired in 0.10 (push notifications removed); value kept
     STATE_STALE_WARNING,
     STATE_NO_DATA,
     STATE_NO_WIFI,
@@ -53,6 +53,9 @@ DisplayState engine_get_state();
 
 // Get the user-selected mode (for returning after notifications)
 DisplayState engine_get_user_mode();
+
+// States whose feature was removed: never shown, a force_mode for them is ignored.
+bool engine_state_retired(DisplayState state);
 
 // Get state name string
 const char* engine_state_name(DisplayState state);

@@ -56,7 +56,7 @@ Meant for a clock at school, outside school hours.
 ## Rotation order
 
 ```
-glucose → trend → TIR → IOB → time → weather → pet → ALERTS → timer → …
+glucose → trend → TIR → IOB → time → pet → ALERTS → timer → …
 ```
 
 - **Position:** the alerts screen sits after the pet, or where the pet would be if the pet screen is off.

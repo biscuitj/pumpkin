@@ -8,10 +8,7 @@
 #include "time_engine.h"
 #include "sensors.h"
 #include "display.h"
-#include "weather_client.h"
 #include "timer_engine.h"
-#include "notify_engine.h"
-#include "sysmon_engine.h"
 #include "countdown_engine.h"
 #include "buzzer.h"
 #include "buttons.h"
@@ -123,14 +120,6 @@ static void handle_status(AsyncWebServerRequest* request) {
     thresholds["high"] = cfg.thresh_high;
     thresholds["urgent_high"] = cfg.thresh_urgent_high;
 
-    // Weather
-    if (weather_has_data()) {
-        const WeatherReading& wx = weather_get_reading();
-        doc["weather_temp"] = wx.temp;
-        doc["weather_desc"] = wx.description;
-        doc["weather_humidity"] = wx.humidity;
-    }
-
     // Timer status
     doc["timer_state"] = (int)timer_get_state();
     doc["timer_remaining"] = timer_get_remaining_sec();
@@ -139,13 +128,6 @@ static void handle_status(AsyncWebServerRequest* request) {
     // Stopwatch status
     doc["stopwatch_state"] = (int)stopwatch_get_state();
     doc["stopwatch_elapsed"] = stopwatch_get_elapsed_sec();
-
-    // Sysmon
-    if (sysmon_has_data()) {
-        doc["sysmon_label"] = sysmon_get_label();
-        doc["sysmon_value"] = sysmon_get_value();
-        doc["sysmon_max"] = sysmon_get_max();
-    }
 
     // Countdown
     if (cfg.countdown_enabled && countdown_is_configured()) {
@@ -245,9 +227,8 @@ static void fill_config_doc(JsonDocument& doc) {
     doc["color_urgent_high"] = color_to_hex(cfg.color_urgent_high);
     doc["color_stale"] = color_to_hex(cfg.color_stale);
 
-    // Clock & weather colors
+    // Clock color
     doc["color_clock"] = color_to_hex(cfg.color_clock);
-    doc["color_weather"] = color_to_hex(cfg.color_weather);
 
     // Night mode
     doc["night_mode_enabled"] = cfg.night_mode_enabled;
@@ -258,13 +239,6 @@ static void fill_config_doc(JsonDocument& doc) {
 
     // Stale timeout
     doc["stale_timeout_min"] = cfg.stale_timeout_min;
-
-    // Weather
-    doc["weather_enabled"] = cfg.weather_enabled;
-    doc["has_weather_api_key"] = strlen(cfg.weather_api_key) > 0;
-    doc["weather_city"] = cfg.weather_city;
-    doc["weather_use_f"] = cfg.weather_use_f;
-    doc["weather_poll_min"] = cfg.weather_poll_min;
 
     // Date
     doc["date_on_time_screen"] = cfg.date_on_time_screen;
@@ -280,18 +254,6 @@ static void fill_config_doc(JsonDocument& doc) {
 
     // Stopwatch
     doc["stopwatch_enabled"] = cfg.stopwatch_enabled;
-
-    // Notifications
-    doc["notify_enabled"] = cfg.notify_enabled;
-    doc["notify_default_duration"] = cfg.notify_default_duration;
-    doc["notify_allow_buzzer"] = cfg.notify_allow_buzzer;
-
-    // Sysmon
-    doc["sysmon_enabled"] = cfg.sysmon_enabled;
-    doc["sysmon_label"] = cfg.sysmon_label;
-    doc["sysmon_display_mode"] = cfg.sysmon_display_mode;
-    doc["sysmon_warn_pct"] = cfg.sysmon_warn_pct;
-    doc["sysmon_crit_pct"] = cfg.sysmon_crit_pct;
 
     // Countdown
     doc["countdown_enabled"] = cfg.countdown_enabled;
@@ -537,6 +499,7 @@ static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, si
     if (doc["ambient_seasonal"].is<bool>()) {
         cfg.ambient_seasonal = doc["ambient_seasonal"].as<bool>();
     }
+    if (cfg.default_mode == 2) cfg.default_mode = 0;   // 2 was weather (removed in 0.10)
     if (!cfg.time_display_enabled && cfg.default_mode == 1) {
         cfg.default_mode = 0;
     }
@@ -578,12 +541,9 @@ static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, si
         cfg.color_stale = hex_to_color(doc["color_stale"] | "#808080");
     }
 
-    // Clock & weather colors
+    // Clock color
     if (doc["color_clock"].is<const char*>()) {
         cfg.color_clock = hex_to_color(doc["color_clock"] | "#ffffff");
-    }
-    if (doc["color_weather"].is<const char*>()) {
-        cfg.color_weather = hex_to_color(doc["color_weather"] | "#ffffff");
     }
 
     // Night mode
@@ -626,25 +586,6 @@ static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, si
         cfg.stale_timeout_min = constrain(doc["stale_timeout_min"].as<int>(), 5, 60);
     }
 
-    // Weather
-    if (doc["weather_enabled"].is<bool>()) {
-        cfg.weather_enabled = doc["weather_enabled"].as<bool>();
-    }
-    if (doc["weather_api_key"].is<const char*>() && strlen(doc["weather_api_key"] | "") > 0) {
-        strncpy(cfg.weather_api_key, doc["weather_api_key"] | "", sizeof(cfg.weather_api_key) - 1);
-        cfg.weather_api_key[sizeof(cfg.weather_api_key) - 1] = '\0';
-    }
-    if (doc["weather_city"].is<const char*>()) {
-        strncpy(cfg.weather_city, doc["weather_city"] | "", sizeof(cfg.weather_city) - 1);
-        cfg.weather_city[sizeof(cfg.weather_city) - 1] = '\0';
-    }
-    if (doc["weather_use_f"].is<bool>()) {
-        cfg.weather_use_f = doc["weather_use_f"].as<bool>();
-    }
-    if (doc["weather_poll_min"].is<int>()) {
-        cfg.weather_poll_min = constrain(doc["weather_poll_min"].as<int>(), 5, 60);
-    }
-
     // Date
     if (doc["date_on_time_screen"].is<bool>()) {
         cfg.date_on_time_screen = doc["date_on_time_screen"].as<bool>();
@@ -676,35 +617,6 @@ static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, si
     // Stopwatch
     if (doc["stopwatch_enabled"].is<bool>()) {
         cfg.stopwatch_enabled = doc["stopwatch_enabled"].as<bool>();
-    }
-
-    // Notifications
-    if (doc["notify_enabled"].is<bool>()) {
-        cfg.notify_enabled = doc["notify_enabled"].as<bool>();
-    }
-    if (doc["notify_default_duration"].is<int>()) {
-        cfg.notify_default_duration = constrain(doc["notify_default_duration"].as<int>(), 5, 600);
-    }
-    if (doc["notify_allow_buzzer"].is<bool>()) {
-        cfg.notify_allow_buzzer = doc["notify_allow_buzzer"].as<bool>();
-    }
-
-    // Sysmon
-    if (doc["sysmon_enabled"].is<bool>()) {
-        cfg.sysmon_enabled = doc["sysmon_enabled"].as<bool>();
-    }
-    if (doc["sysmon_label"].is<const char*>()) {
-        strncpy(cfg.sysmon_label, doc["sysmon_label"] | "CPU", sizeof(cfg.sysmon_label) - 1);
-        cfg.sysmon_label[sizeof(cfg.sysmon_label) - 1] = '\0';
-    }
-    if (doc["sysmon_display_mode"].is<int>()) {
-        cfg.sysmon_display_mode = constrain(doc["sysmon_display_mode"].as<int>(), 0, 1);
-    }
-    if (doc["sysmon_warn_pct"].is<int>()) {
-        cfg.sysmon_warn_pct = constrain(doc["sysmon_warn_pct"].as<int>(), 0, 100);
-    }
-    if (doc["sysmon_crit_pct"].is<int>()) {
-        cfg.sysmon_crit_pct = constrain(doc["sysmon_crit_pct"].as<int>(), 0, 100);
     }
 
     // Countdown
@@ -956,85 +868,6 @@ static void handle_update_done(AsyncWebServerRequest* request) {
     request->send(400, "application/json", output);
 }
 
-// POST /api/notify
-static void handle_post_notify(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-    if (!web_auth_ok(request)) return;   // answered with 401 by the middleware
-    if (index != 0) return;
-
-    AppConfig& cfg = config_get();
-    if (!cfg.notify_enabled) {
-        request->send(403, "application/json", "{\"error\":\"Notifications disabled\"}");
-        return;
-    }
-
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, data, len);
-    if (err) {
-        request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-        return;
-    }
-
-    const char* text = doc["text"] | "";
-    if (strlen(text) == 0) {
-        request->send(400, "application/json", "{\"error\":\"Missing text\"}");
-        return;
-    }
-
-    int duration = doc["duration_sec"] | cfg.notify_default_duration;
-    bool urgent = doc["urgent"] | false;
-
-    notify_push(text, duration, urgent);
-    request->send(200, "application/json", "{\"status\":\"ok\"}");
-}
-
-// POST /api/sysmon
-static void handle_post_sysmon(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-    if (!web_auth_ok(request)) return;   // answered with 401 by the middleware
-    if (index != 0) return;
-
-    AppConfig& cfg = config_get();
-    if (!cfg.sysmon_enabled) {
-        request->send(403, "application/json", "{\"error\":\"System monitor disabled\"}");
-        return;
-    }
-
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, data, len);
-    if (err) {
-        request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-        return;
-    }
-
-    const char* label = doc["label"] | cfg.sysmon_label;
-    int value = doc["value"] | 0;
-    int max_val = doc["max"] | 100;
-
-    sysmon_push(label, value, max_val);
-    request->send(200, "application/json", "{\"status\":\"ok\"}");
-}
-
-// POST /api/test/weather
-static void handle_test_weather(AsyncWebServerRequest* request) {
-    bool ok = weather_force_fetch();
-    JsonDocument doc;
-    doc["ok"] = ok;
-    doc["http_code"] = weather_get_last_http_code();
-
-    if (ok) {
-        const WeatherReading& wx = weather_get_reading();
-        doc["temp"] = wx.temp;
-        doc["description"] = wx.description;
-        doc["humidity"] = wx.humidity;
-    } else {
-        doc["error"] = weather_get_last_response();
-    }
-
-    String output;
-    serializeJson(doc, output);
-    request->send(ok ? 200 : 502, "application/json", output);
-}
-
-// POST /api/test/weather-mock
 // POST /api/test/alert {"id": "suspended"|"warning"|"battery"|"reservoir"|"bg"|"sensor"|"set"|"all"}
 // Plays the pump alert(s) once on the display, then returns to the previous screen.
 static void handle_test_alert(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
@@ -1204,40 +1037,6 @@ static void handle_clear_alerts_status(AsyncWebServerRequest* request) {
     resp["status"] = code == 0 ? "idle" : code == 1 ? "pending" : code == 200 ? "cleared"
                    : code == 404 ? "nothing" : "error";
     resp["code"] = code;
-    String output;
-    serializeJson(resp, output);
-    request->send(200, "application/json", output);
-}
-
-static void handle_test_weather_mock(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-    if (!web_auth_ok(request)) return;   // answered with 401 by the middleware
-    if (index != 0) return;
-
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, data, len);
-    if (err) {
-        request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-        return;
-    }
-
-    float temp = doc["temp"] | 32.0f;
-    const char* desc = doc["description"] | "Mock";
-    int cid = doc["condition_id"] | 800;
-
-    weather_set_mock(temp, desc, cid);
-
-    // Force weather enabled + switch to weather display
-    AppConfig& cfg = config_get();
-    cfg.weather_enabled = true;
-    engine_rebuild_toggle_order();
-    engine_force_state(STATE_WEATHER_DISPLAY);
-
-    JsonDocument resp;
-    resp["status"] = "ok";
-    resp["condition_id"] = cid;
-    resp["description"] = desc;
-    resp["temp"] = temp;
-
     String output;
     serializeJson(resp, output);
     request->send(200, "application/json", output);
@@ -1573,7 +1372,6 @@ void webserver_init() {
     server.on("/api/update", HTTP_POST, handle_update_done, handle_update_upload);
     server.on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* r) { handle_restart(r); });
     server.on("/api/factory-reset", HTTP_POST, [](AsyncWebServerRequest* r) { handle_factory_reset(r); });
-    server.on("/api/test/weather", HTTP_POST, [](AsyncWebServerRequest* r) { handle_test_weather(r); });
     server.on("/api/test/glucose", HTTP_POST, [](AsyncWebServerRequest* r) { handle_test_glucose(r); });
 
     // Specific paths first: a handler for "/api/clocks" also matches "/api/clocks/…".
@@ -1598,12 +1396,6 @@ void webserver_init() {
         handle_test_alert
     );
 
-    // POST /api/test/weather-mock with body
-    server.on("/api/test/weather-mock", HTTP_POST,
-        [](AsyncWebServerRequest* request) {},
-        NULL,
-        handle_test_weather_mock
-    );
     // WiFi setup portal
     server.on("/api/wifi/scan", HTTP_GET, handle_wifi_scan);
     server.on("/api/wifi/status", HTTP_GET, handle_wifi_status);
@@ -1628,20 +1420,6 @@ void webserver_init() {
         [](AsyncWebServerRequest* request) {},
         NULL,
         handle_post_config
-    );
-
-    // POST /api/notify with body
-    server.on("/api/notify", HTTP_POST,
-        [](AsyncWebServerRequest* request) {},
-        NULL,
-        handle_post_notify
-    );
-
-    // POST /api/sysmon with body
-    server.on("/api/sysmon", HTTP_POST,
-        [](AsyncWebServerRequest* request) {},
-        NULL,
-        handle_post_sysmon
     );
 
     // Same-origin production UI needs no wildcard CORS. It can be enabled for

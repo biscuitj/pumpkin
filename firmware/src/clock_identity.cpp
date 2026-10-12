@@ -132,7 +132,7 @@ static const CopyKey COPY_KEYS[] = {
     {"color_low", CLOCK_COPY_DISPLAY}, {"color_in_range", CLOCK_COPY_DISPLAY},
     {"color_high", CLOCK_COPY_DISPLAY}, {"color_urgent_low", CLOCK_COPY_DISPLAY},
     {"color_urgent_high", CLOCK_COPY_DISPLAY}, {"color_stale", CLOCK_COPY_DISPLAY},
-    {"color_clock", CLOCK_COPY_DISPLAY}, {"color_weather", CLOCK_COPY_DISPLAY},
+    {"color_clock", CLOCK_COPY_DISPLAY},
     {"stale_timeout_min", CLOCK_COPY_DISPLAY},
     // Buzzer alerts
     {"alert_enabled", CLOCK_COPY_DISPLAY}, {"alert_low", CLOCK_COPY_DISPLAY},

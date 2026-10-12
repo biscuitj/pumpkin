@@ -23,7 +23,7 @@ static unsigned long now_ms = 0, age_ms = 0;
 static int failures = 0, drawn_glucose = 0, delta_frames = 0, button_actions = 0;
 static uint16_t drawn_color = 0;
 static uint8_t frame_level = 0;
-static bool connected = true, ap_mode = false, notification = false, ever_received = true;
+static bool connected = true, ap_mode = false, ever_received = true;
 static NetCheckResult network = NC_OK, data_network = NC_OK;
 
 unsigned long millis() { return now_ms; }
@@ -52,9 +52,6 @@ const char* wifi_trial_ssid() { return "test"; }
 NetCheckResult netcheck_dns() { return network; }
 NetCheckResult netcheck_data() { return data_network; }
 const char* netcheck_summary() { return "offline"; }
-bool notify_has_active() { return notification; }
-bool notify_is_urgent() { return true; }
-const char* notify_get_text() { return "message"; }
 bool time_is_available() { return true; }
 static int hour_now = 12;
 int time_get_hour() { return hour_now; }
@@ -77,15 +74,8 @@ void stopwatch_toggle_start_pause() { ++button_actions; }
 void stopwatch_reset() { ++button_actions; }
 StopwatchState stopwatch_get_state() { return SW_IDLE; }
 int stopwatch_get_elapsed_sec() { return 0; }
-bool sysmon_has_data() { return true; }
-int sysmon_get_value() { return 50; }
-int sysmon_get_max() { return 100; }
-const char* sysmon_get_label() { return "CPU"; }
 bool countdown_is_configured() { return false; }
 long countdown_get_remaining_sec() { return 0; }
-bool weather_has_data() { return false; }
-const WeatherReading& weather_get_reading() { static WeatherReading wx = {}; return wx; }
-void weather_set_pre_fetch_callback(WeatherPreFetchCallback) {}
 static uint8_t set_level = 0, stale_level = 0;
 void display_set_brightness(uint8_t level) { set_level = level; }
 void display_set_transition_level(uint8_t level) { frame_level = level; }

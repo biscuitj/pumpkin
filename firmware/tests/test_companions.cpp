@@ -4,7 +4,6 @@
 #include "config_manager.h"
 #include "display.h"
 #include "http_client.h"
-#include "weather_client.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -12,7 +11,6 @@
 
 static AppConfig cfg = {};
 static GlucoseReading reading = {};
-static WeatherReading weather = {};
 static unsigned long now_ms = 3000;
 static int hour = 10, pixel_count = 0, failures = 0;
 static bool ever_received = true;
@@ -31,8 +29,6 @@ bool time_is_available() { return true; }
 int time_get_hour() { return hour; }
 int time_get_day() { return 31; }
 int time_get_month() { return 10; }
-bool weather_has_data() { return false; }
-const WeatherReading& weather_get_reading() { return weather; }
 void display_clear() { pixel_count = 0; text[0] = 0; memset(screen, 0, sizeof(screen)); }
 void display_draw_pixel(int x, int y, uint16_t color) {
     assert(x >= 0 && x < 32 && y >= 0 && y < 8);

@@ -10,13 +10,9 @@
 #include "http_client.h"
 #include "time_engine.h"
 #include "trend_arrows.h"
-#include "weather_client.h"
-#include "weather_render.h"
 #include "ambient_fish.h"
 #include "buzzer.h"
 #include "timer_engine.h"
-#include "notify_engine.h"
-#include "sysmon_engine.h"
 #include "countdown_engine.h"
 #include "net_check.h"
 #include "sensors.h"
@@ -77,25 +73,6 @@ static uint16_t color_from_uint32(uint32_t c) {
     return display_color((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
 }
 
-// The icon renderer uses elapsed time, independent of render frame rate. Unsigned
-// subtraction keeps normal uptime rollover safe; gaps restart at a clean frame.
-static WeatherAnimationState weather_animation = {};
-static TaskHandle_t engine_task = nullptr;
-
-static void draw_weather_content(uint32_t now) {
-    const AppConfig& cfg = config_get();
-    const uint16_t color = color_from_uint32(cfg.color_weather);
-    if (!weather_has_data()) {
-        weather_animation_reset(weather_animation);
-        display_draw_text("WX...", 4, 0, color);
-        return;
-    }
-
-    const WeatherReading& wx = weather_get_reading();
-    weather_render(wx.temp, cfg.weather_use_f, wx.condition_id,
-                   weather_animation_elapsed(weather_animation, wx.condition_id, now), color);
-}
-
 bool engine_low_glucose_lock_active() {
     const AppConfig& cfg = config_get();
     const GlucoseReading& reading = http_get_reading();
@@ -115,22 +92,6 @@ bool engine_low_glucose_lock_active() {
 
     // Defensive: configuration does not require these thresholds to be ordered.
     return reading.glucose < cfg.thresh_low || reading.glucose < cfg.thresh_urgent_low;
-}
-
-// Freeze a complete compact weather frame before a blocking HTTP fetch, using
-// the same numeric rounding, layout, and current fade level as normal rendering.
-static void on_weather_pre_fetch() {
-    // Test Weather API also fetches from AsyncTCP. Only the engine's task may
-    // touch its animation state or the LED buffer; that task keeps rendering
-    // normally while a different task is fetching.
-    if (xTaskGetCurrentTaskHandle() != engine_task) return;
-    weather_animation_reset(weather_animation);
-    if (current_state == STATE_WEATHER_DISPLAY) {
-        display_clear();
-        display_set_transition_level(transition_level);
-        draw_weather_content(static_cast<uint32_t>(millis()));
-        display_show();
-    }
 }
 
 // Data-driven toggle order
@@ -183,7 +144,6 @@ void engine_rebuild_toggle_order() {
     if (cfg.tir_display_enabled) toggle_order[toggle_count++] = STATE_TIR_DISPLAY;
     if (cfg.iob_display_enabled) toggle_order[toggle_count++] = STATE_IOB_DISPLAY;
     if (cfg.time_display_enabled) toggle_order[toggle_count++] = STATE_TIME_DISPLAY;
-    if (cfg.weather_enabled) toggle_order[toggle_count++] = STATE_WEATHER_DISPLAY;
     // Pump alerts follow the pet screen (or sit where it would be), or take its
     // slot when "alerts replace pet" is on. Only present while alerts are active.
     const bool alerts = engine_bridge_alerts_active();
@@ -192,7 +152,6 @@ void engine_rebuild_toggle_order() {
     if (alerts) toggle_order[toggle_count++] = STATE_ALERTS_DISPLAY;
     if (cfg.timer_enabled) toggle_order[toggle_count++] = STATE_TIMER_DISPLAY;
     if (cfg.stopwatch_enabled) toggle_order[toggle_count++] = STATE_STOPWATCH_DISPLAY;
-    if (cfg.sysmon_enabled && sysmon_has_data()) toggle_order[toggle_count++] = STATE_SYSMON_DISPLAY;
     if (cfg.countdown_enabled) toggle_order[toggle_count++] = STATE_COUNTDOWN_DISPLAY;
 
     // Reset toggle_index to match current user_mode
@@ -348,16 +307,12 @@ bool engine_preview_alerts(const uint8_t* warnings, uint8_t count) {
 }
 
 void engine_init() {
-    engine_task = xTaskGetCurrentTaskHandle();
     current_state = STATE_BOOT;
-    weather_animation_reset(weather_animation);
     boot_start_ms = millis();
 
     AppConfig& cfg = config_get();
     if (cfg.default_mode == 3 && cfg.ambient_enabled) {
         default_mode = STATE_AMBIENT_CREATURE_DISPLAY;
-    } else if (cfg.default_mode == 2 && cfg.weather_enabled) {
-        default_mode = STATE_WEATHER_DISPLAY;
     } else if (cfg.default_mode == 1 && cfg.time_display_enabled) {
         default_mode = STATE_TIME_DISPLAY;
     } else {
@@ -372,9 +327,6 @@ void engine_init() {
     ambient_fish_init();
 
     engine_rebuild_toggle_order();
-
-    // Keep the compact weather frame coherent during blocking HTTP calls
-    weather_set_pre_fetch_callback(on_weather_pre_fetch);
 
     // Show initial boot frame (scrolling animation starts in engine_loop)
     display_clear();
@@ -406,7 +358,6 @@ static DisplayState evaluate_state() {
         last_cycle_ms = millis();
     }
     if (connection_info_visible) {
-        if (cfg.notify_enabled && notify_has_active()) return STATE_NOTIFY_DISPLAY;
         if (urgent_glucose_is_active()) return STATE_GLUCOSE_DISPLAY;
         return STATE_CONNECTION_INFO_DISPLAY;
     }
@@ -442,11 +393,6 @@ static DisplayState evaluate_state() {
         }
     }
 
-    // Active notification takes priority
-    if (cfg.notify_enabled && notify_has_active()) {
-        return STATE_NOTIFY_DISPLAY;
-    }
-
     if (!demo) {
         // Check for NO DATA conditions
         int failures = http_get_failure_count();
@@ -467,13 +413,13 @@ static DisplayState evaluate_state() {
     }
 
     // Server force override
-    if (state_forced) {
+    if (state_forced && !engine_state_retired(forced_state)) {
         return forced_state;
     }
 
     // Check for server-pushed force_mode
     const GlucoseReading& reading = http_get_reading();
-    if (reading.valid && reading.force_mode >= 0) {
+    if (reading.valid && reading.force_mode >= 0 && !engine_state_retired((DisplayState)reading.force_mode)) {
         return (DisplayState)reading.force_mode;
     }
 
@@ -640,13 +586,6 @@ static void render_state(DisplayState state) {
             break;
         }
 
-        case STATE_WEATHER_DISPLAY: {
-            display_set_brightness(effective_brightness());
-            display_clear();
-            draw_weather_content(static_cast<uint32_t>(millis()));
-            display_show();
-            break;
-        }
 
         case STATE_AMBIENT_CREATURE_DISPLAY: {
             display_set_brightness(effective_brightness());
@@ -714,46 +653,6 @@ static void render_state(DisplayState state) {
             break;
         }
 
-        case STATE_SYSMON_DISPLAY: {
-            display_set_brightness(effective_brightness());
-            display_clear();
-
-            if (!sysmon_has_data()) {
-                display_draw_text("SYS..", 1, 0, display_color(100, 100, 100));
-            } else {
-                int value = sysmon_get_value();
-                int max_val = sysmon_get_max();
-                const char* label = sysmon_get_label();
-                int pct = (max_val > 0) ? (value * 100 / max_val) : 0;
-
-                // Color based on thresholds
-                uint16_t color;
-                if (pct >= cfg.sysmon_crit_pct) {
-                    color = display_color(255, 0, 0);      // Red
-                } else if (pct >= cfg.sysmon_warn_pct) {
-                    color = display_color(255, 255, 0);    // Yellow
-                } else {
-                    color = display_color(0, 255, 0);      // Green
-                }
-
-                if (cfg.sysmon_display_mode == 1) {
-                    // Bar mode
-                    display_draw_bar(value, max_val, color);
-                    // Label on top
-                    display_draw_text(label, 1, 0, color);
-                } else {
-                    // Text mode: LABEL + value
-                    char tbuf[10];
-                    snprintf(tbuf, sizeof(tbuf), "%s%d", label, value);
-                    int len = strlen(tbuf);
-                    int tx = (MATRIX_WIDTH - len * 6) / 2;
-                    display_draw_text(tbuf, tx, 0, color);
-                }
-            }
-
-            display_show();
-            break;
-        }
 
         case STATE_COUNTDOWN_DISPLAY: {
             display_set_brightness(effective_brightness());
@@ -910,28 +809,14 @@ static void render_state(DisplayState state) {
             break;
         }
 
-        case STATE_NOTIFY_DISPLAY: {
-            display_set_brightness(effective_brightness());
+
+        case STATE_WEATHER_DISPLAY:
+        case STATE_SYSMON_DISPLAY:
+        case STATE_NOTIFY_DISPLAY:
+            // Retired screens: evaluate_state() never selects them.
             display_clear();
-
-            const char* text = notify_get_text();
-            bool urgent = notify_is_urgent();
-            uint16_t color = urgent ? display_color(255, 0, 0) : display_color(255, 255, 255);
-
-            int len = strlen(text);
-            if (len <= 5) {
-                int x = (MATRIX_WIDTH - len * 6) / 2;
-                display_draw_text(text, x, 0, color);
-            } else {
-                // Scrolling
-                int total_w = len * 6;
-                int offset = (millis() / 100) % (total_w + MATRIX_WIDTH);
-                display_draw_text(text, MATRIX_WIDTH - offset, 0, color);
-            }
-
             display_show();
             break;
-        }
 
         case STATE_MESSAGE_DISPLAY: {
             display_clear();
@@ -1087,7 +972,7 @@ void engine_loop() {
     if (millis() - last_render_ms < RENDER_INTERVAL_MS) return;
     last_render_ms = millis();
 
-    // Periodically rebuild toggle order (catches sysmon data appearing/disappearing)
+    // Periodically rebuild toggle order (catches pump alerts appearing/disappearing)
     static unsigned long last_rebuild_ms = 0;
     if (millis() - last_rebuild_ms > 5000) {
         last_rebuild_ms = millis();
@@ -1139,7 +1024,6 @@ void engine_loop() {
         // Cancel an in-flight fade immediately: no unrelated frame or dimmed
         // glucose frame should linger after a low reading is received.
         if (current_state != STATE_GLUCOSE_DISPLAY) {
-            weather_animation_reset(weather_animation);
             display_scroll_reset();
         }
         current_state = STATE_GLUCOSE_DISPLAY;
@@ -1171,7 +1055,6 @@ void engine_loop() {
                               engine_state_name(current_state),
                               engine_state_name(transition_target));
                 current_state = transition_target;
-                weather_animation_reset(weather_animation);
                 display_scroll_reset();
                 transition_level = 0;
                 transition_start_level = 0;
@@ -1246,6 +1129,10 @@ const char* engine_state_name(DisplayState state) {
     }
 }
 
+bool engine_state_retired(DisplayState state) {
+    return state == STATE_WEATHER_DISPLAY || state == STATE_SYSMON_DISPLAY || state == STATE_NOTIFY_DISPLAY;
+}
+
 void engine_force_state(DisplayState state) {
     forced_state = state;
     state_forced = true;
@@ -1264,9 +1151,7 @@ void engine_set_default_mode(DisplayState mode) {
     if (mode == STATE_TIME_DISPLAY && !config_get().time_display_enabled) {
         mode = STATE_GLUCOSE_DISPLAY;
     }
-    if (mode == STATE_WEATHER_DISPLAY && !config_get().weather_enabled) {
-        mode = STATE_GLUCOSE_DISPLAY;
-    }
+    if (engine_state_retired(mode)) mode = STATE_GLUCOSE_DISPLAY;
     if (mode == STATE_AMBIENT_CREATURE_DISPLAY && !config_get().ambient_enabled) {
         mode = STATE_GLUCOSE_DISPLAY;
     }

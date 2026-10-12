@@ -17,7 +17,7 @@ class BridgeScreensTests(unittest.TestCase):
                 '-Werror', '-Wno-error=unused-variable',
                 '-I', str(ROOT / 'tests/engine_stubs'), '-I', str(ROOT / 'include'),
                 str(ROOT / 'tests/test_bridge_screens.cpp'),
-                str(ROOT / 'src/weather_render.cpp'), '-o', str(exe),
+                '-o', str(exe),
             ], check=True)
             subprocess.run([str(exe)], check=True)
 

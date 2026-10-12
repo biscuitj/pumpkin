@@ -9,12 +9,9 @@
 #include "time_engine.h"
 #include "sensors.h"
 #include "http_client.h"
-#include "weather_client.h"
 #include "web_server.h"
 #include "buzzer.h"
 #include "timer_engine.h"
-#include "notify_engine.h"
-#include "sysmon_engine.h"
 #include "countdown_engine.h"
 #include "improv_serial.h"
 #include "net_check.h"
@@ -106,16 +103,11 @@ void setup() {
     // 9. Init HTTP client
     http_init();
 
-    // 10. Init weather client
-    weather_init();
-
     // 11. Init web server routes (doesn't start serving yet)
     webserver_init();
 
     // 12. Init new feature engines
     timer_init();
-    notify_init();
-    sysmon_init();
     countdown_init();
 
     // 13. Init Improv Wi-Fi serial handler
@@ -172,9 +164,6 @@ void loop() {
 
     // 2. HTTP polling
     http_loop();
-
-    // 2b. Weather polling
-    weather_loop();
 
     // 3. Time management
     time_loop();
@@ -238,8 +227,6 @@ void loop() {
     // 6. Feature engine loops
     buzzer_loop();
     timer_loop();
-    notify_loop();
-    sysmon_loop();
     countdown_loop();
 
     // 7. Engine state machine + rendering

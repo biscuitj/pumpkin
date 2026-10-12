@@ -17,7 +17,7 @@ class LowGlucoseTests(unittest.TestCase):
                 '-Werror', '-Wno-error=unused-variable',
                 '-I', str(ROOT / 'tests/engine_stubs'), '-I', str(ROOT / 'include'),
                 str(ROOT / 'tests/test_low_glucose.cpp'),
-                str(ROOT / 'src/weather_render.cpp'), '-o', str(exe),
+                '-o', str(exe),
             ], check=True)
             subprocess.run([str(exe)], check=True)
 
@@ -87,7 +87,7 @@ int main() {
                 os.environ.get('CXX', 'c++'), '-std=c++11', '-Wall', '-Wextra',
                 '-Werror', '-Wno-error=unused-variable',
                 '-I', str(ROOT / 'tests/engine_stubs'), '-I', str(ROOT / 'include'),
-                str(cpp), str(ROOT / 'src/weather_render.cpp'), '-o', str(exe),
+                str(cpp), '-o', str(exe),
             ], check=True)
             subprocess.run([str(exe)], check=True)
 

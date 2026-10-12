@@ -6,7 +6,6 @@
 #include "display.h"
 #include "http_client.h"
 #include "time_engine.h"
-#include "weather_client.h"
 
 #include <Arduino.h>
 #include <stdio.h>
@@ -24,14 +23,6 @@ enum FishPose {
     FISH_PLAYING
 };
 
-enum WaterWeather {
-    WATER_QUIET,
-    WATER_RAIN,
-    WATER_COLD,
-    WATER_SUN,
-    WATER_CURRENT
-};
-
 enum GlucoseEffect {
     GLUCOSE_EFFECT_NONE,
     GLUCOSE_EFFECT_MISSING,
@@ -47,9 +38,6 @@ static unsigned long interaction_started_ms = 0;
 
 static uint16_t orange()    { return display_color(244, 118, 42); }
 static uint16_t gold()      { return display_color(255, 190, 66); }
-static uint16_t deep_water(){ return display_color(16, 64, 84); }
-static uint16_t water()     { return display_color(48, 154, 198); }
-static uint16_t cool()      { return display_color(151, 218, 242); }
 static uint16_t purple()    { return display_color(148, 75, 205); }
 static uint16_t red()       { return display_color(232, 60, 54); }
 
@@ -104,40 +92,6 @@ static FishPose choose_pose() {
         : FISH_SWIMMING;
 }
 
-static bool weather_is_fresh() {
-    const AppConfig& cfg = config_get();
-    if (!cfg.weather_enabled || !weather_has_data()) return false;
-
-    const WeatherReading& weather_reading = weather_get_reading();
-    if (!weather_reading.valid) return false;
-
-    // Allow one missed poll, while ensuring stale conditions quietly disappear.
-    int poll_minutes = cfg.weather_poll_min;
-    if (poll_minutes < 5) poll_minutes = 5;
-    if (poll_minutes > 180) poll_minutes = 180;
-    unsigned long fresh_for_ms = (unsigned long)poll_minutes * 2UL * 60UL * 1000UL;
-    const unsigned long minimum_fresh_ms = 30UL * 60UL * 1000UL;
-    if (fresh_for_ms < minimum_fresh_ms) fresh_for_ms = minimum_fresh_ms;
-    return millis() - weather_reading.received_at_ms <= fresh_for_ms;
-}
-
-static WaterWeather choose_water_weather() {
-    if (!weather_is_fresh()) return WATER_QUIET;
-
-    const WeatherReading& weather_reading = weather_get_reading();
-    const AppConfig& cfg = config_get();
-    int id = weather_reading.condition_id;
-    if (id >= 200 && id < 600) return WATER_RAIN;
-    if (id >= 600 && id < 700) return WATER_COLD;
-
-    float cold_threshold = cfg.weather_use_f ? 45.0f : 7.0f;
-    float hot_threshold = cfg.weather_use_f ? 80.0f : 27.0f;
-    if (weather_reading.temp <= cold_threshold) return WATER_COLD;
-    if (id == 771) return WATER_CURRENT; // squall
-    if (id == 800 || weather_reading.temp >= hot_threshold) return WATER_SUN;
-    return WATER_QUIET;
-}
-
 static GlucoseEffect choose_glucose_effect() {
     const GlucoseReading& reading = http_get_reading();
     const AppConfig& cfg = config_get();
@@ -159,44 +113,6 @@ static GlucoseEffect choose_glucose_effect() {
     if (reading.glucose <= cfg.thresh_high) return GLUCOSE_EFFECT_IN_RANGE;
     if (reading.glucose <= cfg.thresh_urgent_high) return GLUCOSE_EFFECT_HIGH;
     return GLUCOSE_EFFECT_URGENT_HIGH;
-}
-
-static void draw_water_weather(WaterWeather weather_state, unsigned long frame) {
-    // Keep these effects sparse: the fish remains the dominant silhouette.
-    switch (weather_state) {
-        case WATER_RAIN: {
-            static const uint8_t drops[] = {2, 12, 27};
-            for (unsigned int i = 0; i < sizeof(drops); ++i) {
-                int y = (int)((frame / 2 + i * 2) % 2);
-                display_draw_pixel(drops[i], y, cool());
-            }
-            hline(0, 4, 2, deep_water());
-            hline(26, 31, 2, deep_water());
-            break;
-        }
-        case WATER_COLD: {
-            static const uint8_t xs[] = {2, 5, 28, 30};
-            for (unsigned int i = 0; i < sizeof(xs); ++i) {
-                int y = 1 + (int)((frame / 8 + i * 2) % 5);
-                display_draw_pixel(xs[i], y, cool());
-            }
-            break;
-        }
-        case WATER_SUN:
-            hline(1, 5, 0, gold());
-            display_draw_pixel(2, 1, gold());
-            display_draw_pixel(4, 1, gold());
-            break;
-        case WATER_CURRENT: {
-            int offset = (int)((frame / 3) % 4);
-            hline(offset, offset + 4, 1, water());
-            hline(27 - offset, 31 - offset, 6, deep_water());
-            break;
-        }
-        case WATER_QUIET:
-        default:
-            break;
-    }
 }
 
 static void draw_urgent_number(GlucoseEffect effect) {
@@ -310,7 +226,7 @@ void ambient_fish_render() {
         return;
     }
 
-    // Urgent readings get the entire display: no fish, current, weather, trend,
+    // Urgent readings get the entire display: no pet, trend,
     // or seasonal decoration competes with the number.
     if (glucose_effect == GLUCOSE_EFFECT_URGENT_LOW ||
         glucose_effect == GLUCOSE_EFFECT_URGENT_HIGH) {
@@ -322,7 +238,6 @@ void ambient_fish_render() {
     // are limited to the standalone pet, and never obscure an out-of-range pose.
     bool scene_extras = companion_style_or_default(config_get().ambient_style) == COMPANION_ONLY &&
                         glucose_effect == GLUCOSE_EFFECT_IN_RANGE;
-    if (scene_extras) draw_water_weather(choose_water_weather(), frame);
 
     draw_companion(frame, pose == FISH_RESTING, pose == FISH_PLAYING,
                    glucose_effect);

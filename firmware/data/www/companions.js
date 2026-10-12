@@ -1,7 +1,7 @@
 // Pixel-for-pixel parity with include/companion.h is verified in test_companions.py.
 (function(scope) {
     'use strict';
-    const names=['Pip the goldfish','Boo the ghost','Mochi the axolotl','Sprout the dinosaur','Pebble the turtle','Inky the octopus','Maple the red panda'];
+    const names=['Pip the goldfish','Boo the ghost','Mochi the axolotl','Sprout the dinosaur','Pebble the turtle','Inky the octopus','Maple the red panda','Patch the pumpkin'];
     const palette={a:'#f06460',r:'#f06460',i:'#94e6a1',u:'#263b32',W:'#d1fff1',M:'#86dfd1',S:'#4b9d9d',E:'#0b1725',O:'#ff9d48',Y:'#ffd47c',R:'#e57439',P:'#ffc8d9',G:'#ec779e',L:'#94e6a1',D:'#50ad7c',H:'#ff83ac',B:'#74bfdc',C:'#fff1d7',V:'#c997ff',T:'#8f5c47'};
     const valid=id=>Number.isInteger(id)&&id>=0&&id<names.length;
     const validStyle=style=>Number.isInteger(style)&&style>=0&&style<3;
@@ -15,6 +15,8 @@
         ['......LLLLL.','.....LLLELLL','.....LLLLLLL','....DLLLL...','L..DLLLLLL..','LL.LLLYL....','.LLLLLLL....','....L..L....']
     ];
     const newcomers=[[["..............","....LLLL......","...LDLLDL.....","..LDDLDDDL.LL.","..LDLLLDLL.LEL",".LLLLLLLLLLLL.","...L....L.....","..LL...LL....."],["..............","..............","....LLLL......","...LDLLDL.....","..LDDLDDDL....",".LLLLLLLLLLEL.","...L....L.....","..LL...LL....."],["..............","....LLLL..LL..","...LDLLDL.LEL.","..LDDLDDDLLLL.","..LDLLLDLL.L..",".LLLLLLLLLLL..","...L....L.....","...LL...LL...."]],[["....VVVV......","...VVVVVV.....","..VVVVVVVV....","..VCEVVCEV....","..VVVVVVVV....","...VVVVVV.....","..VV.VV.VV....",".VV..VV..VV..."],["..............","....VVVV......","...VVVVVV.....","..VVVVVVVV....","..VCEVVCEV....","..VVVVVVVV....","...VVVVVV.....","..VV.VV.VV...."],["....VVVV......","...VVVVVV.....","..VVVVVVVV....","..VCEVVCEV....","V.VVVVVVVV.V..","VV.VVVVVV.VV..","..VV.VV.VV....",".VV..VV..VV..."]],[[".O...O........",".OCCCO........","OOOOOOO.......","OCECECO....OO.","OCCYCCO...OYY.",".OOOOO...YYOO.",".TTTTT.OOYY...",".TT.TT.OO....."],["..............",".O...O........",".OCCCO........","OOOOOOO.......","OCECECO.......","OCCYCCO....OO.",".OOOOO.OOYYOO.",".TT.TT.YYOO..."],[".O...O.....OO.",".OCCCO....OYY.","OOOOOOO...YYO.","OCECECO...OO..","OCCYCCO..YY...","OOOOOOO..OO...",".TTTTT.OO.....",".TT.TT.OO....."]]];
+    const pumpkin=['...OOOROOO','..OROOOOORO','.OOROOOOOROO','.OOROOOOOROO','.OOROOOOOROO','..OROOOOORO','...OOOOOOO'];
+    const squashedPumpkin=['...OOOROOO','..OROOOOORO','.OOROOOOOROO','.OOROOOOOROO','.OOROOOOOROO','..OOOOOOOOO'];
     const font={L:['100','100','100','100','111'],O:['111','101','101','101','111'],W:['101','101','101','111','101'],K:['101','101','110','101','101'],H:['101','101','111','101','101'],I:['111','010','010','010','111'],G:['111','100','101','101','111']};
     // Styles: 0=text, 1=range icon, 2=centered pet. Ranges: 0=in range, 1=low, 2=high.
     function frame(id,ms,sleepy,happy,style=0,range=0) {
@@ -60,6 +62,25 @@
                 else{put(5,7,'.');put(8,7,'.');put(6,7,'L');put(9,7,'L');}
             }
             if(sleepy){put(9,2,'L');put(9,3,'E');}
+        }else if(id===7){
+            if(range===1){
+                sprite(squashedPumpkin,0,2);
+                put(6,1,'D');put(phase?5:7,1,'L');
+                put(4,4,'E');put(8,4,'E');
+                put(6,5,'E');put(5,6,'E');put(7,6,'E');
+            }else{
+                sprite(pumpkin,0,1);
+                put(6,0,'D');put(phase?8:7,0,'L');
+                for(const x of [4,8]){if(sleepy)put(x,3,'E');else{put(x,2,'E');put(x,3,'E');}}
+                put(3,4,'G');put(9,4,'G');
+                if(range===2){
+                    put(6,4,'E');put(6,5,'E');
+                    for(const x of [0,12]){put(x,2,'L');put(x,phase?1:3,'L');}
+                }else{
+                    put(5,5,'E');put(7,5,'E');put(6,6,'E');
+                    if(happy){put(0,5,'L');put(0,6,'L');put(12,2,'L');if(phase)put(12,1,'L');else put(13,1,'L');}
+                }
+            }
         }else{
             sprite(newcomers[id-4][range],0,0);
             if(id===4){

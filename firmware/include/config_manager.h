@@ -68,11 +68,11 @@ struct AppConfig {
     bool alerts_replace_pet;     // pump alerts take the pet screen's slot instead of following it
 
     // Display mode
-    int default_mode;          // 0=glucose, 1=time, 2=weather, 3=pixel companion
+    int default_mode;          // 0=glucose, 1=time, 3=pixel companion (2 was weather: now glucose)
 
     // Pixel companion display
     bool ambient_enabled;      // include the companion in navigation/auto-cycle, default false
-    int ambient_character;     // 0=Pip, 1=Boo, 2=Mochi, 3=Sprout, 4=Pebble, 5=Inky, 6=Maple; default Pip
+    int ambient_character;     // 0=Pip, 1=Boo, 2=Mochi, 3=Sprout, 4=Pebble, 5=Inky, 6=Maple, 7=Patch; default Patch
     int ambient_style;         // 0=companion + text, 1=companion + icon, 2=centered companion
     bool ambient_use_glucose_colors; // use configured glucose colors for status, default false
     bool ambient_show_tir;     // text style: show 24h time in range (bridge) instead of LOW/OK/HIGH
@@ -92,9 +92,8 @@ struct AppConfig {
     uint32_t color_urgent_high;  // default 0xEA4335 (red)
     uint32_t color_stale;        // default 0x808080 (gray)
 
-    // Clock & weather display colors
-    uint32_t color_clock;        // default 0x00FFFF (cyan)
-    uint32_t color_weather;      // default 0x00FFFF (cyan)
+    // Clock display color
+    uint32_t color_clock;        // default 0xFFFFFF (white)
 
     // Night mode
     bool night_mode_enabled;   // default false
@@ -105,13 +104,6 @@ struct AppConfig {
 
     // Data freshness
     int stale_timeout_min;     // default 20 minutes
-
-    // Weather
-    bool weather_enabled;       // default false
-    char weather_api_key[48];   // OWM API key (32 hex chars + padding)
-    char weather_city[64];      // "City,CC" format, default "New York,US"
-    bool weather_use_f;         // true=Fahrenheit, false=Celsius, default true
-    int weather_poll_min;       // update interval, default 15, min 5
 
     // Date display on time screen
     bool date_on_time_screen;  // default true
@@ -127,18 +119,6 @@ struct AppConfig {
 
     // Stopwatch
     bool stopwatch_enabled;    // default true
-
-    // Notifications
-    bool notify_enabled;           // default true
-    int notify_default_duration;   // default 60 seconds
-    bool notify_allow_buzzer;      // default true
-
-    // System monitor
-    bool sysmon_enabled;       // default true
-    char sysmon_label[8];      // default "CPU"
-    int sysmon_display_mode;   // 0=text, 1=bar, default 0
-    int sysmon_warn_pct;       // default 50
-    int sysmon_crit_pct;       // default 80
 
     // Auto-cycle display
     bool auto_cycle_enabled;   // default true

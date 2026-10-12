@@ -5,8 +5,8 @@
 #include <string.h>
 #include <initializer_list>
 
-// Persisted IDs: keep Pip at zero for upgrades from Ambient Fish.
-enum Companion { COMPANION_FISH, COMPANION_GHOST, COMPANION_AXOLOTL, COMPANION_DINO, COMPANION_TURTLE, COMPANION_OCTOPUS, COMPANION_RED_PANDA, COMPANION_COUNT };
+// Persisted IDs: keep Pip at zero for upgrades from Ambient Fish; new pets go at the end.
+enum Companion { COMPANION_FISH, COMPANION_GHOST, COMPANION_AXOLOTL, COMPANION_DINO, COMPANION_TURTLE, COMPANION_OCTOPUS, COMPANION_RED_PANDA, COMPANION_PUMPKIN, COMPANION_COUNT };
 inline bool companion_valid(int id) { return id >= 0 && id < COMPANION_COUNT; }
 inline int companion_or_default(int id) { return companion_valid(id) ? id : COMPANION_FISH; }
 
@@ -82,6 +82,9 @@ inline void companion_frame(int id, uint32_t ms, bool sleepy, bool happy, char (
             {".O...O.....OO.",".OCCCO....OYY.","OOOOOOO...YYO.","OCECECO...OO..","OCCYCCO..YY...","OOOOOOO..OO...",".TTTTT.OO.....",".TT.TT.OO....."}
         }
     };
+    // Patch the pumpkin: body only; stem, leaf, face and vine arms are drawn per pose.
+    static const char* const pumpkin[] = {"...OOOROOO","..OROOOOORO",".OOROOOOOROO",".OOROOOOOROO",".OOROOOOOROO","..OROOOOORO","...OOOOOOO"};
+    static const char* const squashed_pumpkin[] = {"...OOOROOO","..OROOOOORO",".OOROOOOOROO",".OOROOOOOROO",".OOROOOOOROO","..OOOOOOOOO"};
     id = companion_or_default(id);
     style = companion_style_or_default(style);
     if (range < COMPANION_IN_RANGE || range > COMPANION_HIGH) range = COMPANION_IN_RANGE;
@@ -130,6 +133,34 @@ inline void companion_frame(int id, uint32_t ms, bool sleepy, bool happy, char (
             else { put(5,7,'.'); put(8,7,'.'); put(6,7,'L'); put(9,7,'L'); }
         }
         if (sleepy) { put(9,2,'L'); put(9,3,'E'); }
+    } else if (id == COMPANION_PUMPKIN) {
+        if (range == COMPANION_LOW) {
+            // Squashed and sitting low, leaf drooping, looking down with a frown.
+            sprite(squashed_pumpkin, 6, 0, 2);
+            put(6,1,'D'); put(phase ? 5 : 7, 1, 'L');
+            put(4,4,'E'); put(8,4,'E');
+            put(6,5,'E'); put(5,6,'E'); put(7,6,'E');
+        } else {
+            sprite(pumpkin, 7, 0, 1);
+            put(6,0,'D'); put(phase ? 8 : 7, 0, 'L');      // the leaf flutters
+            for (int x : {4, 8}) {
+                if (sleepy) put(x,3,'E');                    // eyes closed
+                else { put(x,2,'E'); put(x,3,'E'); }
+            }
+            put(3,4,'G'); put(9,4,'G');                      // cheeks
+            if (range == COMPANION_HIGH) {
+                put(6,4,'E'); put(6,5,'E');                  // open mouth
+                for (int x : {0, 12}) {                      // vine arms flap
+                    put(x,2,'L'); put(x, phase ? 1 : 3, 'L');
+                }
+            } else {
+                put(5,5,'E'); put(7,5,'E'); put(6,6,'E');    // smile
+                if (happy) {                                 // waves hello with one vine
+                    put(0,5,'L'); put(0,6,'L'); put(12,2,'L');
+                    if (phase) put(12,1,'L'); else put(13,1,'L');
+                }
+            }
+        }
     } else {
         sprite(newcomers[id - COMPANION_TURTLE][range], 8, 0, 0);
         if (id == COMPANION_TURTLE) {

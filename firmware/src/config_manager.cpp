@@ -74,7 +74,7 @@ static void config_set_defaults() {
 
     // Pixel companion
     config.ambient_enabled = false;
-    config.ambient_character = COMPANION_FISH;
+    config.ambient_character = COMPANION_PUMPKIN;
     config.ambient_style = COMPANION_TEXT;
     config.ambient_use_glucose_colors = false;
     config.ambient_show_tir = true;
@@ -94,9 +94,8 @@ static void config_set_defaults() {
     config.color_urgent_high = 0xEA4335;
     config.color_stale       = 0x808080;
 
-    // Clock & weather colors
+    // Clock color
     config.color_clock   = 0xFFFFFF;
-    config.color_weather = 0xFFFFFF;
 
     // Night mode
     config.night_mode_enabled = false;
@@ -107,13 +106,6 @@ static void config_set_defaults() {
 
     // Stale timeout
     config.stale_timeout_min = 20;
-
-    // Weather
-    config.weather_enabled = false;
-    config.weather_api_key[0] = '\0';
-    strncpy(config.weather_city, "New York,US", sizeof(config.weather_city));
-    config.weather_use_f = true;
-    config.weather_poll_min = 15;
 
     // Date display
     config.date_on_time_screen = false;
@@ -129,18 +121,6 @@ static void config_set_defaults() {
 
     // Stopwatch
     config.stopwatch_enabled = false;
-
-    // Notifications
-    config.notify_enabled = true;
-    config.notify_default_duration = 60;
-    config.notify_allow_buzzer = true;
-
-    // System monitor
-    config.sysmon_enabled = true;
-    strncpy(config.sysmon_label, "CPU", sizeof(config.sysmon_label));
-    config.sysmon_display_mode = 0;
-    config.sysmon_warn_pct = 50;
-    config.sysmon_crit_pct = 80;
 
     // Countdown
     config.countdown_enabled = false;
@@ -321,9 +301,8 @@ void config_init() {
         config.color_urgent_high = prefs.getUInt("c_uhigh", 0xEA4335);
         config.color_stale       = prefs.getUInt("c_stale", 0x808080);
 
-        // Clock & weather colors
+        // Clock color
         config.color_clock   = prefs.getUInt("c_clock", 0xFFFFFF);
-        config.color_weather = prefs.getUInt("c_weather", 0xFFFFFF);
 
         // Night mode
         config.night_mode_enabled = prefs.getBool("night_en", false);
@@ -334,17 +313,6 @@ void config_init() {
 
         // Stale timeout
         config.stale_timeout_min = prefs.getInt("stale_min", 20);
-
-        // Weather
-        config.weather_enabled = prefs.getBool("wx_en", false);
-        prefs.getString("wx_apikey", config.weather_api_key, sizeof(config.weather_api_key));
-        prefs.getString("wx_city", config.weather_city, sizeof(config.weather_city));
-        if (strlen(config.weather_city) == 0) {
-            strncpy(config.weather_city, "New York,US", sizeof(config.weather_city));
-        }
-        config.weather_use_f = prefs.getBool("wx_use_f", true);
-        config.weather_poll_min = prefs.getInt("wx_poll", 15);
-        if (config.weather_poll_min < 5) config.weather_poll_min = 5;
 
         // Date display
         config.date_on_time_screen = prefs.getBool("date_en", false);
@@ -360,21 +328,6 @@ void config_init() {
 
         // Stopwatch
         config.stopwatch_enabled = prefs.getBool("sw_en", false);
-
-        // Notifications
-        config.notify_enabled = prefs.getBool("ntfy_en", true);
-        config.notify_default_duration = prefs.getInt("ntfy_dur", 60);
-        config.notify_allow_buzzer = prefs.getBool("ntfy_buzz", true);
-
-        // System monitor
-        config.sysmon_enabled = prefs.getBool("smon_en", true);
-        prefs.getString("smon_lbl", config.sysmon_label, sizeof(config.sysmon_label));
-        if (strlen(config.sysmon_label) == 0) {
-            strncpy(config.sysmon_label, "CPU", sizeof(config.sysmon_label));
-        }
-        config.sysmon_display_mode = prefs.getInt("smon_dmode", 0);
-        config.sysmon_warn_pct = prefs.getInt("smon_warn", 50);
-        config.sysmon_crit_pct = prefs.getInt("smon_crit", 80);
 
         // Countdown
         config.countdown_enabled = prefs.getBool("cd_en", false);
@@ -469,9 +422,8 @@ void config_save() {
     prefs.putUInt("c_uhigh", config.color_urgent_high);
     prefs.putUInt("c_stale", config.color_stale);
 
-    // Clock & weather colors
+    // Clock color
     prefs.putUInt("c_clock", config.color_clock);
-    prefs.putUInt("c_weather", config.color_weather);
 
     // Night mode
     prefs.putBool("night_en", config.night_mode_enabled);
@@ -482,13 +434,6 @@ void config_save() {
 
     // Stale timeout
     prefs.putInt("stale_min", config.stale_timeout_min);
-
-    // Weather
-    prefs.putBool("wx_en", config.weather_enabled);
-    prefs.putString("wx_apikey", config.weather_api_key);
-    prefs.putString("wx_city", config.weather_city);
-    prefs.putBool("wx_use_f", config.weather_use_f);
-    prefs.putInt("wx_poll", config.weather_poll_min);
 
     // Date display
     prefs.putBool("date_en", config.date_on_time_screen);
@@ -505,17 +450,13 @@ void config_save() {
     // Stopwatch
     prefs.putBool("sw_en", config.stopwatch_enabled);
 
-    // Notifications
-    prefs.putBool("ntfy_en", config.notify_enabled);
-    prefs.putInt("ntfy_dur", config.notify_default_duration);
-    prefs.putBool("ntfy_buzz", config.notify_allow_buzzer);
-
-    // System monitor
-    prefs.putBool("smon_en", config.sysmon_enabled);
-    prefs.putString("smon_lbl", config.sysmon_label);
-    prefs.putInt("smon_dmode", config.sysmon_display_mode);
-    prefs.putInt("smon_warn", config.sysmon_warn_pct);
-    prefs.putInt("smon_crit", config.sysmon_crit_pct);
+    // Removed in 0.10 (weather, push notifications, system monitor): drop their
+    // keys, so an old weather API key doesn't stay behind in flash.
+    for (const char* key : {"c_weather", "wx_en", "wx_apikey", "wx_city", "wx_use_f", "wx_poll",
+                            "ntfy_en", "ntfy_dur", "ntfy_buzz",
+                            "smon_en", "smon_lbl", "smon_dmode", "smon_warn", "smon_crit"}) {
+        if (prefs.isKey(key)) prefs.remove(key);
+    }
 
     // Countdown
     prefs.putBool("cd_en", config.countdown_enabled);

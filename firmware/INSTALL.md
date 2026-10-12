@@ -150,7 +150,7 @@ pio device monitor
 You should see:
 ```
 ================================
-Pumpkin v0.9.1
+Pumpkin v0.10.0
 Reset reason: 1
 ================================
 [CONFIG] No valid config found, writing defaults
@@ -215,7 +215,6 @@ School IT can copy this outbound allowlist (also allow normal DNS resolution):
 
 ```text
 TCP 443: share2.dexcom.com, shareous1.dexcom.com (only with Dexcom Share as data source)
-TCP 443: api.openweathermap.org (only with the weather screen)
 TCP 443: the Pumpkin bridge (<name>.<account>.workers.dev)
 TCP 443: the configured Nightscout host (when used)
 UDP 123: pool.ntp.org
