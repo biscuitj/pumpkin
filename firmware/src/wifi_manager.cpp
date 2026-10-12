@@ -44,7 +44,7 @@
 // phone still on the AP has a chance to poll /api/wifi/status once more.
 #define WIFI_AP_SHUTDOWN_GRACE_MS 10000
 
-// Setup network: "SugarClock-Setup-E5F6", unique per clock (see clock_net).
+// Setup network: "Pumpkin-Setup-E5F6", unique per clock (see clock_net).
 #define SETUP_AP_SSID clock_net_setup_ssid()
 
 #define MAX_CA_PEM 4096

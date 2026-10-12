@@ -47,9 +47,3 @@ class ConfigurationUITests(unittest.TestCase):
         self.assertEqual(1, len(canvas))
         self.assertEqual(4, int(canvas[0]['width']) / int(canvas[0]['height']))
 
-    def test_installer_web_assets_match_device(self):
-        bundled = ROOT / 'onboarding/TC001Setup/TC001Setup/Resources/WebUI/www'
-        for asset in WEB.iterdir():
-            if asset.is_file() and not asset.name.startswith('.'):
-                with self.subTest(asset=asset.name):
-                    self.assertEqual(asset.read_bytes(), (bundled / asset.name).read_bytes())

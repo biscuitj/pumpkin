@@ -8,8 +8,8 @@ pump alerts (battery, reservoir, set and sensor change, a stopped pump).
   account). Serves the clock one JSON document and uploads the same data to
   Nightscout.
 - **`firmware/`**: firmware for the Ulanzi TC001 (ESP32, 32×8 LEDs). Based on
-  [SugarClock](https://github.com/cdemeke/SugarClock), pulled in with
-  `git subtree`.
+  [SugarClock](https://github.com/cdemeke/SugarClock) 0.2.15 and branched off
+  from there: no upstream updates are merged.
 - **`docs/`**: installation (`INSTALL.md`), data structures (`DATA-SCHEMA.md`),
   display spec (`CLOCK-DISPLAY-SPEC.md`).
 - **`CHANGELOG.md`**: one version for bridge and firmware together.
@@ -21,20 +21,16 @@ pump alerts (battery, reservoir, set and sensor change, a stopped pump).
 cd bridge && npm install && npm test && npx wrangler deploy
 
 # Firmware (PlatformIO)
-cd firmware && pio run -t upload
-python3 -m pytest -q tests/test_bridge_screens.py tests/test_clock_identity.py
-```
-
-Upstream SugarClock releases (fetch only, never pushed to):
-
-```bash
-git subtree pull --prefix=firmware upstream main --squash
+cd firmware && pio run -t upload            # first time / recovery: over USB
+python3 -m pytest -q tests/                 # host tests
+# later updates: upload firmware/.pio/build/esp32dev/firmware.bin in the
+# clock's web page (Device → Update firmware)
 ```
 
 ## Licenses and disclaimer
 
-- `firmware/` is based on SugarClock by Chris Demeke (MIT); that notice applies
-  to the firmware and our changes to it.
+- `firmware/` is based on SugarClock by Chris Demeke (MIT); see
+  `firmware/LICENSE`.
 - `bridge/src/alert-texts.js` is ported from xDrip+ (`TextMap.java`, GPL-3.0),
   so the bridge is GPL-3.0 when it's shared.
 - Not affiliated with or endorsed by Medtronic. Uses an unofficial CareLink

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SugarClock - Configuration</title>
+    <title>Pumpkin - Configuration</title>
     <link rel="stylesheet" href="style.css">
     <script>if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark');</script>
 </head>
@@ -16,8 +16,8 @@
     <aside class="sidebar" aria-label="Main navigation">
         <div class="sidebar-header">
             <a href="/" class="brand">
-                <img class="brand-logo" src="/logo.png" alt="SugarClock logo">
-                <span class="brand-copy"><span class="brand-name">SugarClock</span><span class="brand-device">Device control</span></span>
+                <img class="brand-logo" src="/logo.png" alt="Pumpkin logo">
+                <span class="brand-copy"><span class="brand-name">Pumpkin</span><span class="brand-device">Device control</span></span>
             </a>
             <button class="sidebar-close" type="button" onclick="setNavOpen(false)" aria-label="Close navigation">&times;</button>
         </div>
@@ -55,7 +55,7 @@
         </nav>
         <div class="sidebar-footer">
             <button class="theme-toggle" type="button" onclick="toggleTheme()" title="Toggle color mode"><span class="theme-icon" aria-hidden="true">&#9790;</span><span class="theme-label">Switch to dark mode</span></button>
-            <div class="sidebar-footer-note">Connected to <a href="https://sugarclock.com" target="_blank" rel="noopener">SugarClock</a></div>
+            <div class="sidebar-footer-note">Based on <a href="https://github.com/cdemeke/SugarClock" target="_blank" rel="noopener">SugarClock</a></div>
         </div>
     </aside>
 
@@ -66,7 +66,7 @@
                 <img class="page-header-icon" src="/configuration-icon.png" alt="">
                 <div>
                     <h1 id="config-page-title">Blood Sugar Configuration</h1>
-                    <p>Tune what your SugarClock shows, sounds, and connects to.</p>
+                    <p>Tune what this clock shows, sounds, and connects to.</p>
                 </div>
             </div>
         </div>
@@ -953,8 +953,22 @@ curl -X POST http://DEVICE_IP/api/sysmon \
                 </div>
 
                 <div class="card">
+                    <h2>Password for This Page</h2>
+                    <p class="card-intro" style="margin:-8px 0 12px;" id="web-password-state">No password: anyone on this Wi-Fi can open this page.</p>
+                    <div class="form-group">
+                        <label for="web_password">New password</label>
+                        <input type="password" id="web_password" autocomplete="new-password" minlength="4" maxlength="64">
+                        <div class="hint">User name: <code>pumpkin</code>. Asked for on every page and for every API call (scripts: <code>curl -u pumpkin:&lt;password&gt; …</code>). Leave empty to keep the current setting. Clocks you copy settings to need the same password. Forgot it? Only a USB flash with erase (<code>pio run -t erase</code>) clears it.</div>
+                    </div>
+                    <div class="toggle-row" id="web-password-clear-row" style="display:none;">
+                        <label for="web_password_clear">Remove the password</label>
+                        <input type="checkbox" id="web_password_clear">
+                    </div>
+                </div>
+
+                <div class="card">
                     <h2>Other Clocks on This Network</h2>
-                    <p class="card-intro" style="margin:-8px 0 12px;">SugarClocks this clock can see on your Wi-Fi. Open one to change its own settings, or copy this clock's settings to it.</p>
+                    <p class="card-intro" style="margin:-8px 0 12px;">Pumpkin clocks this clock can see on your Wi-Fi. Open one to change its own settings, or copy this clock's settings to it.</p>
                     <div id="clocks-list"></div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
                         <button type="button" class="btn btn-test" onclick="refreshClocks()">Search again</button>
@@ -1431,6 +1445,12 @@ curl -X POST http://DEVICE_IP/api/sysmon \
                 // This clock
                 document.getElementById('clock_name').value = c.clock_name || '';
                 document.getElementById('clock_name').placeholder = c.clock_display_name || '';
+                document.getElementById('web_password').value = '';
+                document.getElementById('web_password_clear').checked = false;
+                document.getElementById('web-password-clear-row').style.display = c.has_web_password ? '' : 'none';
+                document.getElementById('web-password-state').textContent = c.has_web_password
+                    ? 'A password is set (user name: pumpkin).'
+                    : 'No password: anyone on this Wi-Fi can open this page.';
                 showClockName(c.clock_display_name);
 
                 // Connection
@@ -1593,6 +1613,8 @@ curl -X POST http://DEVICE_IP/api/sysmon \
 
             const data = {
                 clock_name: document.getElementById('clock_name').value.trim(),
+                web_password: document.getElementById('web_password').value,
+                web_password_clear: document.getElementById('web_password_clear').checked,
                 data_source: parseInt(document.getElementById('data_source').value),
                 server_url: document.getElementById('server_url').value,
                 auth_token: document.getElementById('auth_token').value,
@@ -1666,7 +1688,10 @@ curl -X POST http://DEVICE_IP/api/sysmon \
 
             try {
                 const r = await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
-                showToast(r.ok ? 'Configuration saved!' : 'Save failed', r.ok ? 'success' : 'error');
+                let err = '';
+                if (!r.ok) { try { err = (await r.json()).error || ''; } catch (e) {} }
+                showToast(r.ok ? 'Configuration saved!' : (err || 'Save failed'), r.ok ? 'success' : 'error');
+                if (r.ok && (data.web_password || data.web_password_clear)) loadConfig();
             } catch (e) { showToast('Network error', 'error'); }
         });
 
@@ -1811,7 +1836,7 @@ curl -X POST http://DEVICE_IP/api/sysmon \
 
         function showClockName(name) {
             if (!name) return;
-            document.title = name + ' - SugarClock';
+            document.title = name + ' - Pumpkin';
             const dev = document.querySelector('.brand-device');
             if (dev) dev.textContent = name;
         }
@@ -1914,7 +1939,7 @@ curl -X POST http://DEVICE_IP/api/sysmon \
                     if (d.running) continue;
                     const failed = d.results.filter(x => x.status !== 'ok');
                     if (!failed.length) show('Copied to ' + d.results.map(x => x.name).join(', '), true);
-                    else show('Not copied to ' + failed.map(x => x.name + ' (' + x.code + ')').join(', '), false);
+                    else show('Not copied to ' + failed.map(x => x.name + (x.code === 401 ? ' (different password)' : ' (' + x.code + ')')).join(', '), false);
                     return;
                 }
                 show('No answer yet. Check the other clocks', false);

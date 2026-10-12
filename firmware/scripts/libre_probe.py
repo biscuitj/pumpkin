@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 LibreLinkUp probe — verifies a LibreLinkUp follower account works with the
-same API flow the SugarClock firmware uses (src/libre_client.cpp).
+same API flow the Pumpkin firmware uses (src/libre_client.cpp).
 
 Usage:
     python3 scripts/libre_probe.py
@@ -121,7 +121,7 @@ def main():
               f"FactoryTimestamp={gm.get('FactoryTimestamp')!r}  "
               f"sensor type={(c.get('sensor') or {}).get('pt')}")
 
-    print("\nAll good — SugarClock can use this account.")
+    print("\nAll good — Pumpkin can use this account.")
     return 0
 
 

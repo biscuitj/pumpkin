@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SugarClock - Dashboard</title>
+    <title>Pumpkin - Dashboard</title>
     <link rel="stylesheet" href="style.css">
     <script>if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark');</script>
 </head>
@@ -14,7 +14,7 @@
     <button class="sidebar-scrim" type="button" onclick="setNavOpen(false)" aria-label="Close navigation"></button>
     <aside class="sidebar" aria-label="Main navigation">
         <div class="sidebar-header">
-            <a href="/" class="brand"><img class="brand-logo" src="/logo.png" alt="SugarClock logo"><span class="brand-copy"><span class="brand-name">SugarClock</span><span class="brand-device">Device control</span></span></a>
+            <a href="/" class="brand"><img class="brand-logo" src="/logo.png" alt="Pumpkin logo"><span class="brand-copy"><span class="brand-name">Pumpkin</span><span class="brand-device">Device control</span></span></a>
             <button class="sidebar-close" type="button" onclick="setNavOpen(false)" aria-label="Close navigation">&times;</button>
         </div>
         <nav class="sidebar-nav">
@@ -26,7 +26,7 @@
             <a class="sidebar-link" href="/debug.html"><img class="nav-image-icon" src="/diagnostics-icon.png" alt="">Diagnostics</a>
             <a class="sidebar-link" href="/device.html"><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="2"/><path d="M8 2v3M12 2v3M8 15v3M12 15v3M2 8h3M15 8h3M2 12h3M15 12h3"/></svg>Device</a>
         </nav>
-        <div class="sidebar-footer"><button class="theme-toggle" type="button" onclick="toggleTheme()" title="Toggle color mode"><span class="theme-icon" aria-hidden="true">&#9790;</span><span class="theme-label">Switch to dark mode</span></button><div class="sidebar-footer-note">Connected to <a href="https://sugarclock.com" target="_blank" rel="noopener">SugarClock</a></div></div>
+        <div class="sidebar-footer"><button class="theme-toggle" type="button" onclick="toggleTheme()" title="Toggle color mode"><span class="theme-icon" aria-hidden="true">&#9790;</span><span class="theme-label">Switch to dark mode</span></button><div class="sidebar-footer-note">Based on <a href="https://github.com/cdemeke/SugarClock" target="_blank" rel="noopener">SugarClock</a></div></div>
     </aside>
 
     <main class="app-main">
@@ -62,7 +62,7 @@
             </section>
             <div class="display-controls">
                 <strong class="display-current-mode" id="display-state">--</strong>
-                <div class="display-nav-actions" aria-label="Change SugarClock display">
+                <div class="display-nav-actions" aria-label="Change the clock display">
                     <button type="button" class="display-nav-btn" onclick="changeDisplay('prev')" aria-label="Show previous clock display">
                         <span aria-hidden="true">&larr;</span> Previous
                     </button>
@@ -94,7 +94,7 @@
             <div class="capability-heading">
                 <div>
                     <h2>Enabled features</h2>
-                    <p class="card-intro">Only features turned on for this SugarClock appear here.</p>
+                    <p class="card-intro">Only features turned on for this clock appear here.</p>
                 </div>
                 <a href="/" class="capability-manage-link">Manage features</a>
             </div>

@@ -2,7 +2,7 @@
 #define CLOCK_NET_H
 
 // Clocks on the local network: this clock's name and .local address (mDNS),
-// the other SugarClocks it can see, and copying settings to them.
+// the other Pumpkin clocks it can see, and copying settings to them.
 //
 // All mDNS and clock-to-clock HTTP runs on a small background task, so the
 // display loop and the async web server never block on the network.
@@ -42,7 +42,7 @@ void clock_net_start();
 
 const char* clock_net_id();          // "a1b2c3d4e5f6"
 const char* clock_net_name();        // display name (configured or default)
-const char* clock_net_setup_ssid();  // "SugarClock-Setup-E5F6"
+const char* clock_net_setup_ssid();  // "Pumpkin-Setup-E5F6"
 const char* clock_net_slug();        // host label this clock asks for ("keuken")
 
 // "keuken.local" once mDNS is running (with a -2 suffix if the name was

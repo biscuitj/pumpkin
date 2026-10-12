@@ -1,4 +1,5 @@
 #include "captive_portal.h"
+#include <string.h>
 #include "wifi_manager.h"
 
 #include <DNSServer.h>
@@ -16,7 +17,7 @@ static bool dns_running = false;
 static const char SIGNPOST_HTML[] PROGMEM =
 "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
 "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-"<title>SugarClock Setup</title><style>"
+"<title>Pumpkin Setup</title><style>"
 "body{margin:0;padding:2rem 1.25rem;font:16px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
 "background:#0f1115;color:#e8eaed}"
 "h1{font-size:1.35rem;margin:0 0 .75rem}"
@@ -32,7 +33,7 @@ static const char SIGNPOST_HTML[] PROGMEM =
 "<p>This little window can&rsquo;t stay open long enough to join a school network. "
 "Open Safari or Chrome and go to:</p>"
 "<a class=\"addr\" href=\"http://192.168.4.1/\">http://192.168.4.1</a>"
-"<ol><li>Stay connected to this clock&rsquo;s <strong>SugarClock-Setup</strong> network.</li>"
+"<ol><li>Stay connected to this clock&rsquo;s <strong>Pumpkin-Setup</strong> network.</li>"
 "<li>Open the address above in your normal browser.</li>"
 "<li>Pick your network on the WiFi tab and sign in.</li></ol>"
 "</body></html>";
@@ -69,21 +70,30 @@ bool captive_portal_active() {
     return dns_running;
 }
 
+// OS captive-portal probes. Each expects a specific body when the network is
+// unrestricted; serving anything else is what pops the "sign in" sheet.
+static const char* const CAPTIVE_PROBES[] = {
+    "/hotspot-detect.html",   // iOS / macOS
+    "/library/test/success.html",
+    "/generate_204",          // Android
+    "/gen_204",
+    "/ncsi.txt",              // Windows
+    "/connecttest.txt",
+    "/redirect",
+    "/success.txt",           // Firefox
+    "/canonical.html"
+};
+
+bool captive_portal_is_probe(const char* url) {
+    if (!url) return false;
+    for (const char* path : CAPTIVE_PROBES) {
+        if (strcmp(url, path) == 0) return true;
+    }
+    return false;
+}
+
 void captive_portal_register_routes(AsyncWebServer& server) {
-    // OS captive-portal probes. Each expects a specific body when the network is
-    // unrestricted; serving anything else is what pops the "sign in" sheet.
-    const char* probes[] = {
-        "/hotspot-detect.html",   // iOS / macOS
-        "/library/test/success.html",
-        "/generate_204",          // Android
-        "/gen_204",
-        "/ncsi.txt",              // Windows
-        "/connecttest.txt",
-        "/redirect",
-        "/success.txt",           // Firefox
-        "/canonical.html"
-    };
-    for (const char* path : probes) {
+    for (const char* path : CAPTIVE_PROBES) {
         server.on(path, HTTP_GET, [](AsyncWebServerRequest* request) {
             send_signpost(request);
         });

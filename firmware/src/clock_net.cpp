@@ -14,8 +14,8 @@
 #include <limits.h>
 #include <string.h>
 
-#ifndef SUGARCLOCK_VERSION
-#define SUGARCLOCK_VERSION "dev"
+#ifndef PUMPKIN_VERSION
+#define PUMPKIN_VERSION "dev"
 #endif
 
 #define CLOCK_NET_SCAN_INTERVAL_MS 60000UL
@@ -23,7 +23,7 @@
 
 // ESPmDNS has char* and const char* overloads; string literals would make the
 // calls ambiguous, so pass const char* variables.
-static const char* const SVC_SUGARCLOCK = "sugarclock";
+static const char* const SVC_PUMPKIN = "pumpkin";
 static const char* const SVC_HTTP = "http";
 static const char* const PROTO_TCP = "tcp";
 static const char* const TXT_NAME = "name";
@@ -34,8 +34,8 @@ namespace {
 
 uint8_t chip_mac[6];
 char chip_id[13] = "";
-char default_name[CLOCK_NAME_MAX + 1] = "sugarclock";
-char setup_ssid[32] = "SugarClock-Setup";
+char default_name[CLOCK_NAME_MAX + 1] = "pumpkin";
+char setup_ssid[32] = "Pumpkin-Setup";
 char local_host[CLOCK_SLUG_MAX + 8] = "";   // "keuken-2.local"
 
 SemaphoreHandle_t lock = nullptr;
@@ -113,13 +113,13 @@ void start_mdns() {
     }
     const char* name = clock_net_name();
     MDNS.setInstanceName(name);
-    const char* version = SUGARCLOCK_VERSION;
+    const char* version = PUMPKIN_VERSION;
     const char* id = chip_id;
     MDNS.addService(SVC_HTTP, PROTO_TCP, 80);
-    MDNS.addService(SVC_SUGARCLOCK, PROTO_TCP, 80);
-    MDNS.addServiceTxt(SVC_SUGARCLOCK, PROTO_TCP, TXT_NAME, name);
-    MDNS.addServiceTxt(SVC_SUGARCLOCK, PROTO_TCP, TXT_VERSION, version);
-    MDNS.addServiceTxt(SVC_SUGARCLOCK, PROTO_TCP, TXT_ID, id);
+    MDNS.addService(SVC_PUMPKIN, PROTO_TCP, 80);
+    MDNS.addServiceTxt(SVC_PUMPKIN, PROTO_TCP, TXT_NAME, name);
+    MDNS.addServiceTxt(SVC_PUMPKIN, PROTO_TCP, TXT_VERSION, version);
+    MDNS.addServiceTxt(SVC_PUMPKIN, PROTO_TCP, TXT_ID, id);
     mdns_up = true;
     {
         Lock l;
@@ -132,7 +132,7 @@ void scan_peers() {
     scanning = true;
     ClockPeer found[CLOCK_NET_MAX_PEERS];
     int found_count = 0;
-    const int n = MDNS.queryService(SVC_SUGARCLOCK, PROTO_TCP);
+    const int n = MDNS.queryService(SVC_PUMPKIN, PROTO_TCP);
     const IPAddress self = WiFi.localIP();
     for (int i = 0; i < n && found_count < CLOCK_NET_MAX_PEERS; ++i) {
         const IPAddress ip = MDNS.IP(i);
@@ -188,6 +188,10 @@ void run_copies() {
             http.setConnectTimeout(3000);
             http.setTimeout(5000);
             http.addHeader("Content-Type", "application/json");
+            // Other clocks with a web page password accept this clock's password
+            // (user "pumpkin"); a different password answers 401.
+            const char* password = config_get().web_password;
+            if (password[0]) http.setAuthorization("pumpkin", password);
             code = http.POST(body);
             http.end();
         }

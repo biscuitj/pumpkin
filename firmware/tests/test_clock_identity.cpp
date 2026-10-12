@@ -22,9 +22,9 @@ int main() {
     const uint8_t mac[6] = {0xA4, 0xCF, 0x12, 0x9B, 0xE5, 0xF6};
     char buf[64];
     clock_id_from_mac(mac, buf, sizeof(buf));      assert(std::string(buf) == "a4cf129be5f6");
-    clock_default_name(mac, buf, sizeof(buf));     assert(std::string(buf) == "sugarclock-e5f6");
-    clock_setup_ssid(mac, buf, sizeof(buf));       assert(std::string(buf) == "SugarClock-Setup-E5F6");
-    assert(slug("sugarclock-e5f6") == "sugarclock-e5f6");                 // default name is its own slug
+    clock_default_name(mac, buf, sizeof(buf));     assert(std::string(buf) == "pumpkin-e5f6");
+    clock_setup_ssid(mac, buf, sizeof(buf));       assert(std::string(buf) == "Pumpkin-Setup-E5F6");
+    assert(slug("pumpkin-e5f6") == "pumpkin-e5f6");                 // default name is its own slug
 
     // Names -> host labels
     assert(slug("Keuken") == "keuken");

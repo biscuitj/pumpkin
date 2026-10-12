@@ -38,7 +38,3 @@ for(let id=0;id<PixelCompanions.names.length;id++)for(let mood=0;mood<3;mood++)f
         for index, (expected, actual) in enumerate(zip(firmware.splitlines(), preview.splitlines())):
             self.assertEqual(expected, actual, f"Preview frame {index}")
 
-    def test_installer_has_matching_companion_assets(self):
-        bundled = ROOT / 'onboarding/TC001Setup/TC001Setup/Resources/WebUI/www'
-        for name in ('companions.js', 'index.html', 'style.css', 'display.html'):
-            self.assertEqual((ROOT / 'data/www' / name).read_bytes(), (bundled / name).read_bytes(), name)

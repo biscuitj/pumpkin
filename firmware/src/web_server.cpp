@@ -20,7 +20,6 @@
 #include "net_check.h"
 #include "web_assets.h"
 #include "ota_manager.h"
-#include "fleet_manager.h"
 #include "bridge_alerts.h"
 #include "clock_identity.h"
 #include "clock_net.h"
@@ -33,13 +32,25 @@
 #include <Arduino.h>
 
 static AsyncWebServer server(80);
+
+// Web page password (optional). User name is always "pumpkin". A global
+// middleware asks for it on every request; handlers that receive a body or an
+// upload get their data *before* the middleware runs, so they check it
+// themselves (and ignore the data) before acting on anything.
+static const char* const WEB_USER = "pumpkin";
+
+static bool web_auth_ok(AsyncWebServerRequest* request) {
+    const AppConfig& cfg = config_get();
+    return !cfg.web_password[0] || request->authenticate(WEB_USER, cfg.web_password);
+}
+
 static bool started = false;
 
-#ifndef SUGARCLOCK_VERSION
-#define SUGARCLOCK_VERSION "unknown"
+#ifndef PUMPKIN_VERSION
+#define PUMPKIN_VERSION "unknown"
 #endif
-#ifndef SUGARCLOCK_HARDWARE_ID
-#define SUGARCLOCK_HARDWARE_ID "ulanzi-tc001-esp32-4mb"
+#ifndef PUMPKIN_HARDWARE_ID
+#define PUMPKIN_HARDWARE_ID "ulanzi-tc001-esp32-4mb"
 #endif
 
 // Helper: convert uint32_t RGB to "#RRGGBB" hex string
@@ -75,9 +86,8 @@ static void handle_status(AsyncWebServerRequest* request) {
     doc["message"] = r.message;
     OtaStatusSnapshot ota;
     ota_get_status(ota);
-    doc["firmware_version"] = SUGARCLOCK_VERSION;
-    doc["installation_id"] = fleet_installation_id();
-    doc["hardware"] = SUGARCLOCK_HARDWARE_ID;
+    doc["firmware_version"] = PUMPKIN_VERSION;
+    doc["hardware"] = PUMPKIN_HARDWARE_ID;
     doc["running_partition"] = ota.running_partition;
     doc["boot_partition"] = ota.boot_partition;
 
@@ -298,6 +308,7 @@ static void fill_config_doc(JsonDocument& doc) {
     doc["clock_display_name"] = clock_net_name();
     doc["clock_host"] = clock_net_local_host();
     doc["clock_id"] = clock_net_id();
+    doc["has_web_password"] = cfg.web_password[0] != '\0';
 }
 
 static void handle_get_config(AsyncWebServerRequest* request) {
@@ -312,6 +323,7 @@ static void handle_get_config(AsyncWebServerRequest* request) {
 static char config_body[4096];
 
 static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+    if (!web_auth_ok(request)) return;   // answered with 401 by the middleware
     if (total > sizeof(config_body) - 1) {
         request->send(413, "application/json", "{\"error\":\"Body too large\"}");
         return;
@@ -337,6 +349,18 @@ static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, si
         (!doc["ambient_style"].is<int>() || !companion_style_valid(doc["ambient_style"].as<int>()))) {
         request->send(400, "application/json", "{\"error\":\"Invalid companion display style\"}");
         return;
+    }
+
+    if (doc["web_password"].is<const char*>()) {
+        const char* pw = doc["web_password"].as<const char*>();
+        const size_t n = strlen(pw);
+        bool printable = true;
+        for (size_t i = 0; i < n; ++i) printable &= (unsigned char)pw[i] >= 0x20 && pw[i] != 0x7F;
+        if (n > 0 && (n < 4 || n >= sizeof(config_get().web_password) || !printable)) {
+            request->send(400, "application/json",
+                          "{\"error\":\"Password: 4-64 characters, no control characters\"}");
+            return;
+        }
     }
 
     if (doc.as<JsonObjectConst>().containsKey("clock_name")) {
@@ -578,6 +602,15 @@ static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, si
     if (doc["night_full_mute"].is<bool>()) {
         cfg.night_full_mute = doc["night_full_mute"].as<bool>();
     }
+    // Web page password: a new one replaces the old; "web_password_clear"
+    // removes it. An empty field leaves it as it is.
+    if (doc["web_password"].is<const char*>() && strlen(doc["web_password"] | "") > 0) {
+        strncpy(cfg.web_password, doc["web_password"] | "", sizeof(cfg.web_password) - 1);
+        cfg.web_password[sizeof(cfg.web_password) - 1] = '\0';
+    } else if (doc["web_password_clear"] | false) {
+        cfg.web_password[0] = '\0';
+    }
+
     bool clock_name_changed = false;
     if (doc["clock_name"].is<const char*>()) {
         const char* name = doc["clock_name"] | "";   // validated above
@@ -853,89 +886,79 @@ static void handle_timer_status(AsyncWebServerRequest* request) {
     request->send(200, "application/json", output);
 }
 
-// GET /api/ota/status
-static void handle_ota_status(AsyncWebServerRequest* request) {
+// GET /api/update/status
+static void handle_update_status(AsyncWebServerRequest* request) {
     OtaStatusSnapshot snapshot;
     ota_get_status(snapshot);
     JsonDocument doc;
     doc["current_version"] = snapshot.current_version;
     doc["state"] = ota_state_name(snapshot.state);
-    doc["available_version"] = snapshot.available_version;
     doc["progress"] = snapshot.progress;
-    doc["last_check"] = snapshot.last_check;
     doc["last_error"] = snapshot.last_error;
-    doc["safety_reason"] = snapshot.safety_reason;
-    doc["auto_update_enabled"] = snapshot.auto_update_enabled;
-    doc["auto_update_hour"] = snapshot.auto_update_hour;
     doc["running_partition"] = snapshot.running_partition;
     doc["boot_partition"] = snapshot.boot_partition;
     doc["pending_verification"] = snapshot.pending_verification;
+    doc["rolled_back"] = snapshot.rolled_back;
     String output;
     serializeJson(doc, output);
     request->send(200, "application/json", output);
 }
 
-static void send_ota_request_result(AsyncWebServerRequest* request, OtaRequestResult result) {
-    switch (result) {
-        case OTA_REQUEST_QUEUED:
-            request->send(202, "application/json", "{\"status\":\"queued\"}");
-            break;
-        case OTA_REQUEST_BUSY:
-            request->send(409, "application/json", "{\"error\":\"ota_busy\"}");
-            break;
-        case OTA_REQUEST_UNSAFE: {
+// POST /api/update?size=<bytes> (multipart, one file): install a firmware.bin.
+// The data arrives before the password middleware runs, so the upload callback
+// checks the password itself and ignores the data when it's wrong.
+static AsyncWebServerRequest* update_owner = nullptr;
+
+static void handle_update_upload(AsyncWebServerRequest* request, const String& filename, size_t index,
+                                 uint8_t* data, size_t len, bool final) {
+    if (!web_auth_ok(request)) return;   // the middleware answers 401 afterwards
+    if (index == 0) {
+        if (update_owner) return;        // another upload is running; answered with 409
+        size_t size = 0;
+        if (request->hasParam("size")) {
+            size = strtoul(request->getParam("size")->value().c_str(), nullptr, 10);
+        }
+        if (!ota_upload_begin(size)) return;
+        update_owner = request;
+        request->onDisconnect([]() {
+            // The browser went away mid-upload: drop the partial image.
             OtaStatusSnapshot snapshot;
             ota_get_status(snapshot);
-            JsonDocument doc;
-            doc["error"] = "safety_requirements_not_met";
-            doc["reason"] = snapshot.safety_reason;
-            String output;
-            serializeJson(doc, output);
-            request->send(412, "application/json", output);
-            break;
-        }
-        case OTA_REQUEST_NO_UPDATE:
-            request->send(409, "application/json", "{\"error\":\"no_update_available\"}");
-            break;
-        default:
-            request->send(500, "application/json", "{\"error\":\"internal_failure\"}");
-            break;
+            if (snapshot.state == OTA_RECEIVING) ota_upload_abort("upload_interrupted");
+            update_owner = nullptr;
+        });
+        Serial.printf("[WEB] Firmware upload: %s\n", filename.c_str());
     }
+    if (request != update_owner) return;
+    if (len && !ota_upload_write(data, len)) return;
+    if (final) ota_upload_end();
 }
 
-static char ota_settings_body[256];
-static void handle_ota_settings(AsyncWebServerRequest* request, uint8_t* data,
-                                size_t len, size_t index, size_t total) {
-    if (total > sizeof(ota_settings_body) - 1) {
-        request->send(413, "application/json", "{\"error\":\"Body too large\"}");
-        return;
-    }
-    memcpy(ota_settings_body + index, data, len);
-    if (index + len < total) return;
-    ota_settings_body[total] = '\0';
-    JsonDocument doc;
-    if (deserializeJson(doc, ota_settings_body, total)) {
-        request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-        return;
-    }
-    AppConfig& cfg = config_get();
-    if (doc["auto_update_enabled"].is<bool>()) {
-        cfg.auto_update_enabled = doc["auto_update_enabled"].as<bool>();
-    }
-    if (doc["auto_update_hour"].is<int>()) {
-        int hour = doc["auto_update_hour"].as<int>();
-        if (hour < 0 || hour > 23) {
-            request->send(400, "application/json", "{\"error\":\"Hour must be 0-23\"}");
+static void handle_update_done(AsyncWebServerRequest* request) {
+    OtaStatusSnapshot snapshot;
+    ota_get_status(snapshot);
+    if (request == update_owner) {
+        update_owner = nullptr;
+        if (snapshot.state == OTA_PENDING_REBOOT) {
+            request->send(200, "application/json", "{\"status\":\"ok\",\"restarting\":true}");
             return;
         }
-        cfg.auto_update_hour = hour;
+        if (snapshot.state == OTA_RECEIVING) ota_upload_abort("upload_incomplete");
+        ota_get_status(snapshot);
+    } else if (ota_is_busy()) {
+        request->send(409, "application/json", "{\"error\":\"update_already_running\"}");
+        return;
     }
-    config_save();
-    request->send(200, "application/json", "{\"status\":\"ok\"}");
+    JsonDocument doc;
+    doc["error"] = snapshot.last_error[0] ? snapshot.last_error : "no_firmware_received";
+    String output;
+    serializeJson(doc, output);
+    request->send(400, "application/json", output);
 }
 
 // POST /api/notify
 static void handle_post_notify(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+    if (!web_auth_ok(request)) return;   // answered with 401 by the middleware
     if (index != 0) return;
 
     AppConfig& cfg = config_get();
@@ -966,6 +989,7 @@ static void handle_post_notify(AsyncWebServerRequest* request, uint8_t* data, si
 
 // POST /api/sysmon
 static void handle_post_sysmon(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+    if (!web_auth_ok(request)) return;   // answered with 401 by the middleware
     if (index != 0) return;
 
     AppConfig& cfg = config_get();
@@ -1014,6 +1038,7 @@ static void handle_test_weather(AsyncWebServerRequest* request) {
 // POST /api/test/alert {"id": "suspended"|"warning"|"battery"|"reservoir"|"bg"|"sensor"|"set"|"all"}
 // Plays the pump alert(s) once on the display, then returns to the previous screen.
 static void handle_test_alert(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+    if (!web_auth_ok(request)) return;   // answered with 401 by the middleware
     if (index != 0) return;
 
     JsonDocument doc;
@@ -1051,7 +1076,7 @@ static void handle_test_alert(AsyncWebServerRequest* request, uint8_t* data, siz
     request->send(200, "application/json", output);
 }
 
-// GET /api/clocks: this clock and the other SugarClocks it sees on the network.
+// GET /api/clocks: this clock and the other Pumpkin clocks it sees on the network.
 static void handle_get_clocks(AsyncWebServerRequest* request) {
     JsonDocument doc;
     JsonObject self = doc["self"].to<JsonObject>();
@@ -1059,7 +1084,7 @@ static void handle_get_clocks(AsyncWebServerRequest* request) {
     self["host"] = clock_net_local_host();
     self["ip"] = wifi_get_ip();
     self["id"] = clock_net_id();
-    self["version"] = SUGARCLOCK_VERSION;
+    self["version"] = PUMPKIN_VERSION;
     doc["scanning"] = clock_net_scanning();
     const unsigned long age = clock_net_last_scan_age_ms();
     if (age == ULONG_MAX) doc["scan_age_s"] = nullptr;
@@ -1085,6 +1110,7 @@ static void handle_get_clocks(AsyncWebServerRequest* request) {
 // mode / Full Mute hours and the data source (URL + token) only when asked.
 // Runs on the clock-network task; poll GET /api/clocks/copy for the result.
 static void handle_copy_clocks(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+    if (!web_auth_ok(request)) return;   // answered with 401 by the middleware
     if (index != 0 || len != total) {
         if (index == 0) request->send(413, "application/json", "{\"error\":\"Request too large\"}");
         return;
@@ -1165,7 +1191,7 @@ static void handle_copy_clocks_status(AsyncWebServerRequest* request) {
 static void handle_clear_alerts(AsyncWebServerRequest* request) {
     if (!http_request_clear_reminders()) {
         request->send(400, "application/json",
-                      "{\"error\":\"The data source is not a sugarclock-bridge /clock URL\"}");
+                      "{\"error\":\"The data source is not a bridge /clock URL\"}");
         return;
     }
     request->send(202, "application/json", "{\"status\":\"pending\"}");
@@ -1184,6 +1210,7 @@ static void handle_clear_alerts_status(AsyncWebServerRequest* request) {
 }
 
 static void handle_test_weather_mock(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+    if (!web_auth_ok(request)) return;   // answered with 401 by the middleware
     if (index != 0) return;
 
     JsonDocument doc;
@@ -1413,6 +1440,7 @@ static void handle_wifi_status(AsyncWebServerRequest* request) {
 static char wifi_body[1024];
 
 static void handle_wifi_connect(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+    if (!web_auth_ok(request)) return;   // answered with 401 by the middleware
     if (total > sizeof(wifi_body) - 1) {
         request->send(413, "application/json", "{\"error\":\"Body too large\"}");
         return;
@@ -1475,6 +1503,7 @@ static void handle_wifi_connect(AsyncWebServerRequest* request, uint8_t* data, s
 static char ca_body[4096];
 
 static void handle_wifi_ca_upload(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+    if (!web_auth_ok(request)) return;   // answered with 401 by the middleware
     if (total > sizeof(ca_body) - 1) {
         request->send(413, "application/json", "{\"error\":\"Certificate too large (4 KB max)\"}");
         return;
@@ -1508,6 +1537,11 @@ static void handle_wifi_ca_delete(AsyncWebServerRequest* request) {
 }
 
 void webserver_init() {
+    server.addMiddleware([](AsyncWebServerRequest* request, ArMiddlewareNext next) {
+        if (web_auth_ok(request) || captive_portal_is_probe(request->url().c_str())) return next();
+        request->requestAuthentication(AsyncAuthType::AUTH_BASIC, "Pumpkin");
+    });
+
     // LittleFS is only an optional config/certificate overlay. Embedded web
     // assets keep the UI and firmware atomic and remain available if it fails.
     if (!LittleFS.begin(false)) {
@@ -1535,15 +1569,8 @@ void webserver_init() {
     server.on("/api/debug", HTTP_GET, handle_debug);
     server.on("/api/history", HTTP_GET, handle_history);
     server.on("/api/timer", HTTP_GET, handle_timer_status);
-    server.on("/api/ota/status", HTTP_GET, handle_ota_status);
-    server.on("/api/ota/check", HTTP_POST, [](AsyncWebServerRequest* r) {
-        send_ota_request_result(r, ota_request_check());
-    });
-    server.on("/api/ota/install", HTTP_POST, [](AsyncWebServerRequest* r) {
-        send_ota_request_result(r, ota_request_install(true));
-    });
-    server.on("/api/ota/settings", HTTP_POST,
-        [](AsyncWebServerRequest* request) {}, NULL, handle_ota_settings);
+    server.on("/api/update/status", HTTP_GET, handle_update_status);
+    server.on("/api/update", HTTP_POST, handle_update_done, handle_update_upload);
     server.on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* r) { handle_restart(r); });
     server.on("/api/factory-reset", HTTP_POST, [](AsyncWebServerRequest* r) { handle_factory_reset(r); });
     server.on("/api/test/weather", HTTP_POST, [](AsyncWebServerRequest* r) { handle_test_weather(r); });
@@ -1618,8 +1645,8 @@ void webserver_init() {
     );
 
     // Same-origin production UI needs no wildcard CORS. It can be enabled for
-    // local development only with -DSUGARCLOCK_DEV_CORS.
-#ifdef SUGARCLOCK_DEV_CORS
+    // local development only with -DPUMPKIN_DEV_CORS.
+#ifdef PUMPKIN_DEV_CORS
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "Content-Type");

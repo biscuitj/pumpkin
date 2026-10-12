@@ -1,21 +1,60 @@
 # Changelog
 
-All notable changes to the SugarClock bridge project: the Cloudflare Worker
-(`sugarclock-bridge`) and the patch on top of the SugarClock firmware.
+All notable changes to Pumpkin: the bridge (Cloudflare Worker, still deployed as
+`sugarclock-bridge`) and the clock firmware (based on SugarClock 0.2.15).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/). It stays on major
-version 0 until it has a public release.
+version 0 for now.
 
 How versions work:
-- **One version for the whole project.** The Worker and the firmware patch share
-  the `/clock` contract, so they are versioned together.
-- **Worker:** the version is in `package.json`.
-- **Firmware:** the `VERSION` file stays at the upstream SugarClock release we
-  build on (currently `0.2.15`), because the OTA update check compares that
-  file with upstream releases. The project version is recorded here.
+- **One version for the whole project.** The bridge and the firmware share the
+  `/clock` contract, so they are versioned together.
+- **Bridge:** the version is in `bridge/package.json`.
+- **Firmware:** the version is in `firmware/VERSION` (from 0.8.0 on; before
+  that it stayed at SugarClock's `0.2.15` and the project version was only
+  recorded here).
 
 ## [Unreleased]
+
+## [0.8.0] - 2026-10-12
+
+The firmware becomes **Pumpkin**: it branches off SugarClock 0.2.15 for good,
+with its own name, version and update route. Clocks on 0.7 or older need one USB
+flash to get here; after that, updates go through the web page.
+
+### Added
+- Firmware: **update firmware from the web page** (Device → Update firmware,
+  `POST /api/update?size=…`, status via `GET /api/update/status`). The image
+  goes into the backup slot and is accepted after the existing first-boot
+  checks (≈ 15 s). If it doesn't come up healthy, the clock returns to the
+  previous version by itself, and the Device page says so.
+- Firmware: **optional password** for the web page and the whole API (HTTP
+  Basic, user `pumpkin`, NVS `web_pw`), on the Clocks tab. Body and upload
+  handlers check it before acting on any data. The captive-portal probe pages
+  stay open. Copying settings to other clocks sends this clock's password.
+  Scripts use `curl -u pumpkin:<password>`. A forgotten password is only
+  cleared by a USB erase.
+- Firmware: `LICENSE` (MIT, SugarClock copyright kept) and a firmware README.
+
+### Changed
+- Firmware: **renamed to Pumpkin.**
+  - Firmware version `0.8.0` (`firmware/VERSION`, injected as `PUMPKIN_VERSION`).
+  - Default clock name `pumpkin-xxxx` and setup network `Pumpkin-Setup-XXXX`.
+    Clocks you already named keep their name.
+  - Clocks announce themselves as `_pumpkin._tcp`, so clocks on 0.7 and 0.8
+    don't see each other until both are on 0.8.
+  - Page titles, logo (a pixel pumpkin), boot screen and messages now say
+    Pumpkin; the sidebar credits SugarClock.
+- Firmware: the setup network page, the install guide and the update docs
+  describe the Pumpkin flow.
+
+### Removed
+- Firmware: **SugarClock's update server and check-in.** The clock no longer
+  contacts `fleet.sugarclock.com`, never installs SugarClock releases, and has
+  no automatic or scheduled updates (the "auto update" settings are gone).
+  Removed with it: the fleet service, signed manifests and release key, the
+  Mac installer app, the SugarClock website and their tests.
 
 ## [0.7.0] - 2026-10-12
 
@@ -213,6 +252,7 @@ Multiple clocks on one network. Firmware only; the Worker is unchanged.
 - Firmware: "Show Trend Screen" toggle (`trend_en`).
 
 [Unreleased]: #unreleased
+[0.8.0]: #080---2026-10-12
 [0.7.0]: #070---2026-10-12
 [0.6.0]: #060---2026-10-12
 [0.5.1]: #051---2026-10-12

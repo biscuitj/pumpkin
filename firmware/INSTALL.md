@@ -1,4 +1,4 @@
-# SugarClock — Installation Guide
+# Pumpkin firmware — Installation Guide
 
 ## Prerequisites
 
@@ -130,26 +130,12 @@ esptool.py -p /dev/cu.usbserial-1410 -b 460800 write_flash \
   0x390000 .pio/build/esp32dev/littlefs.bin
 ```
 
-### One-time OTA migration (preserve existing settings)
+### Coming from SugarClock or Pumpkin 0.7 (keep settings)
 
-Release 0.2.0 changes the 4 MiB flash layout to two 1.75 MiB application slots and a
-448 KiB LittleFS partition. Existing firmware cannot install this partition table over the
-air, so this bootstrap release must be installed once with the Mac setup app or the command
-below. **Do not run `erase_flash` during migration**: NVS stays at `0x9000`, so saved WiFi,
-Dexcom, Nightscout, alert, and display settings survive.
-
-```bash
-esptool.py -p /dev/cu.usbserial-1410 -b 460800 write_flash \
-  0x1000  .pio/build/esp32dev/bootloader.bin \
-  0x8000  .pio/build/esp32dev/partitions.bin \
-  0xe000  ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
-  0x10000 .pio/build/esp32dev/firmware.bin \
-  0x390000 .pio/build/esp32dev/littlefs.bin
-```
-
-The old filesystem bytes that overlap `ota_1` are harmless; the first OTA write erases that
-inactive slot. Confirm the clock reconnects and still has its glucose-source settings. This
-is the last normally required USB firmware update.
+Clocks on SugarClock or on Pumpkin 0.7 and older can't install a Pumpkin update
+over Wi-Fi yet, so flash them once over USB with `pio run --target upload`.
+**Don't erase first**: Wi-Fi, data source, alerts and display settings stay.
+From 0.8 on, updates go through the clock's web page (see *Updating Firmware*).
 
 ---
 
@@ -164,7 +150,7 @@ pio device monitor
 You should see:
 ```
 ================================
-SugarClock v0.2.0
+Pumpkin v0.8.0
 Reset reason: 1
 ================================
 [CONFIG] No valid config found, writing defaults
@@ -173,7 +159,7 @@ Reset reason: 1
 [BOOT] Free heap: XXXXX bytes
 ```
 
-The LED matrix should briefly show `SUGAR` in teal, then transition to `SETUP` (indicating no WiFi/server is configured yet).
+The LED matrix should briefly show a pixel pumpkin, scroll `Pumpkin`, then show the Wi-Fi setup instructions (no Wi-Fi configured yet).
 
 ---
 
@@ -182,10 +168,10 @@ The LED matrix should briefly show `SUGAR` in teal, then transition to `SETUP` (
 ### First-Time WiFi Setup
 
 On first boot with no WiFi configured, the clock starts an open network named
-`SugarClock-Setup-XXXX`, where `XXXX` is unique per clock, so two new clocks are never mixed
+`Pumpkin-Setup-XXXX`, where `XXXX` is unique per clock, so two new clocks are never mixed
 up. The display cycles the exact network name and `192.168.4.1`.
 
-1. Join that `SugarClock-Setup-XXXX` network from a phone or computer.
+1. Join that `Pumpkin-Setup-XXXX` network from a phone or computer.
 2. If a captive-network window appears, follow its signpost and open a normal Safari,
    Chrome, or Edge window. The setup process is too long-lived for the captive webview.
 3. Open `http://192.168.4.1`.
@@ -202,11 +188,11 @@ page.
 
 ### School and WPA2-Enterprise WiFi
 
-SugarClock supports WPA2-Enterprise with PEAP or EAP-TTLS username/password authentication.
+Pumpkin supports WPA2-Enterprise with PEAP or EAP-TTLS username/password authentication.
 It does not support certificate-based EAP-TLS.
 
-For the easiest on-site flow, choose **Skip — I’ll set this up on the device** in the macOS
-installer. At the school, power the clock, join its `SugarClock-Setup-XXXX` network from a phone, open
+For the easiest on-site flow, flash the clock at home without Wi-Fi details. At the school,
+power the clock, join its `Pumpkin-Setup-XXXX` network from a phone, open
 `http://192.168.4.1`, and select the school network. Enterprise networks are marked in the
 network list. PEAP is the right default for most K-12 networks; use EAP-TTLS only when school
 IT specifies it.
@@ -222,7 +208,7 @@ is optional under **Advanced**.
 
 By default, the clock trusts the authentication server certificate, equivalent to accepting a
 certificate prompt on a phone. For stronger verification, paste the school CA certificate in
-PEM format under **Advanced** before joining. When a CA is loaded, SugarClock validates the
+PEM format under **Advanced** before joining. When a CA is loaded, Pumpkin validates the
 network against it.
 
 School IT can copy this outbound allowlist (also allow normal DNS resolution):
@@ -263,18 +249,20 @@ Open that IP in a browser to access the web UI.
 | Status | `/display.html` | Live glucose reading, trend, data age |
 | Config | `/` | WiFi, server URL, thresholds, display settings |
 | Debug | `/debug.html` | HTTP responses, heap usage, sensor data |
-| Device | `/device.html` | Firmware info, restart/reset buttons |
+| Device | `/device.html` | Firmware version, **Update firmware** (upload a `.bin`), restart/reset |
 
-The Device page also shows installed and available firmware versions, check status, download
-progress, the nightly schedule, and manual **Check now** / **Install now** controls.
+The **Clocks** tab on the Config page names the clock (its address becomes `name.local`),
+lists the other Pumpkin clocks on the network, copies settings to them, and sets an optional
+password for the web page (user `pumpkin`).
 
 ## USB recovery
 
-OTA never modifies the bootloader or partition table and never exposes a firmware-upload web
-route. If both application slots are damaged during development, enter flash mode (hold the
-middle button while connecting USB) and repeat the complete five-segment `write_flash`
-command above. Do not erase first when attempting to preserve NVS. A factory backup can be
-restored at address `0x0` if the original Ulanzi firmware is desired.
+Web updates never touch the bootloader or partition table. If both application slots are
+damaged, enter flash mode (hold the middle button while connecting USB) and flash again with
+`pio run --target upload`. Don't erase first if you want to keep the settings.
+
+**Forgot the web page password?** It can only be cleared over USB, together with all other
+settings: `pio run --target erase`, then `pio run --target upload`, and set the clock up again.
 
 ### Required Configuration
 
@@ -370,13 +358,16 @@ esptool.py -p /dev/cu.usbserial-1410 -b 460800 write_flash 0x0 tc001_factory_bac
 
 ## Updating Firmware
 
-To update to a new version:
+**Over Wi-Fi (0.8 and later):** build with `pio run`, open the clock's web page →
+**Device** → **Update firmware**, pick `.pio/build/esp32dev/firmware.bin` and upload. The
+clock restarts into the new version and checks itself for about 15 seconds; if it doesn't
+come up healthy, it goes back to the previous version by itself and the Device page says so.
+
+**Over USB:**
 
 ```bash
-cd tc001
-git pull              # if using git
-pio run --target upload    # flash firmware
-pio run --target uploadfs  # flash web UI (if changed)
+pio run --target upload    # firmware; settings are kept
 ```
 
-Your configuration is stored in NVS (non-volatile storage) and persists across firmware updates. Only a factory reset erases settings.
+Settings are stored in NVS (non-volatile storage) and survive updates. Only a factory reset
+or an erase clears them.

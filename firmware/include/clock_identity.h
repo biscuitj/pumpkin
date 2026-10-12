@@ -13,10 +13,10 @@
 // "a1b2c3d4e5f6": the chip's base MAC, lowercase hex (out >= 13 bytes).
 void clock_id_from_mac(const uint8_t mac[6], char* out, size_t out_size);
 
-// "sugarclock-e5f6": default display name before the user picks one.
+// "pumpkin-e5f6": default display name before the user picks one.
 void clock_default_name(const uint8_t mac[6], char* out, size_t out_size);
 
-// "SugarClock-Setup-E5F6": setup Wi-Fi network, unique per clock so two new
+// "Pumpkin-Setup-E5F6": setup Wi-Fi network, unique per clock so two new
 // clocks set up side by side are never mixed up.
 void clock_setup_ssid(const uint8_t mac[6], char* out, size_t out_size);
 

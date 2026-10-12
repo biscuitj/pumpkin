@@ -57,7 +57,8 @@ struct AppConfig {
 
     // Time
     char timezone[64];         // POSIX timezone string
-    char clock_name[33];       // display name on the local network; "" = default (sugarclock-xxxx)
+    char clock_name[33];       // display name on the local network; "" = default (pumpkin-xxxx)
+    char web_password[65];     // web page + API password (user "pumpkin"); "" = no password
     bool use_24h;              // default false
     bool time_display_enabled; // include the time screen in navigation/auto-cycle
     bool trend_display_enabled;  // include the trend (arrow + delta) screen
@@ -144,8 +145,6 @@ struct AppConfig {
     int auto_cycle_sec;        // default 10, min 3, max 300
 
     // Secure OTA (new Preferences keys; absent keys preserve old NVS configs)
-    bool auto_update_enabled;  // default true
-    int auto_update_hour;      // local hour, default 3
 
     // Countdown to event
     bool countdown_enabled;    // default false

@@ -18,6 +18,10 @@ void captive_portal_loop();
 // True while the DNS responder is running
 bool captive_portal_active();
 
+// True for the OS connectivity-probe paths (/generate_204, …). They answer with
+// a fixed signpost page and stay reachable without the web page password.
+bool captive_portal_is_probe(const char* url);
+
 // Register the OS probe endpoints and the catch-all signpost handler on the
 // shared web server. Call once from webserver_init().
 void captive_portal_register_routes(AsyncWebServer& server);

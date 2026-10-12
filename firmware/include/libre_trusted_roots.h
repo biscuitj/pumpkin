@@ -6,7 +6,7 @@
 //
 // - *.libreview.io (every region except RU/CN) is served by Cloudflare, which
 //   can issue from Let's Encrypt, Google Trust Services, or Sectigo, so trust
-//   the same Cloudflare set as ota_trusted_roots.h: ISRG Root X1, Sectigo Public
+//   its full root set: ISRG Root X1, Sectigo Public
 //   Server Authentication Root E46/R46, GTS Root R1, GTS Root R4 (in use).
 // - api.libreview.ru:      Go Daddy Root Certificate Authority - G2
 // - api-cn.myfreestyle.cn: Amazon Root CA 1

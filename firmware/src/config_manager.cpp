@@ -60,6 +60,7 @@ static void config_set_defaults() {
     // Time
     strncpy(config.timezone, "EST5EDT,M3.2.0,M11.1.0", sizeof(config.timezone));
     config.clock_name[0] = '\0';
+    config.web_password[0] = '\0';
     config.use_24h = false;
     config.time_display_enabled = true;
     config.trend_display_enabled = true;
@@ -150,8 +151,6 @@ static void config_set_defaults() {
     config.auto_cycle_enabled = true;
     config.auto_cycle_sec = 10;
 
-    config.auto_update_enabled = true;
-    config.auto_update_hour = 3;
 
     config.magic = CONFIG_MAGIC;
 }
@@ -267,6 +266,7 @@ void config_init() {
         config.data_source = prefs.getInt("data_src", 0);
         prefs.getString("server_url", config.server_url, sizeof(config.server_url));
         prefs.getString("clk_name", config.clock_name, sizeof(config.clock_name));
+        prefs.getString("web_pw", config.web_password, sizeof(config.web_password));
         prefs.getString("auth_token", config.auth_token, sizeof(config.auth_token));
         prefs.getString("dex_user", config.dexcom_username, sizeof(config.dexcom_username));
         prefs.getString("dex_pass", config.dexcom_password, sizeof(config.dexcom_password));
@@ -387,14 +387,6 @@ void config_init() {
         if (config.auto_cycle_sec < 3) config.auto_cycle_sec = 3;
         if (config.auto_cycle_sec > 300) config.auto_cycle_sec = 300;
 
-        // OTA settings were added without changing CONFIG_MAGIC, so an existing
-        // device receives secure defaults while all other NVS values survive.
-        config.auto_update_enabled = prefs.getBool("ota_auto", true);
-        config.auto_update_hour = prefs.getInt("ota_hour", 3);
-        if (config.auto_update_hour < 0 || config.auto_update_hour > 23) {
-            config.auto_update_hour = 3;
-        }
-
         config.magic = CONFIG_MAGIC;
 
         // Enforce minimum poll interval
@@ -425,6 +417,7 @@ void config_save() {
     prefs.putInt("data_src", config.data_source);
     prefs.putString("server_url", config.server_url);
     prefs.putString("clk_name", config.clock_name);
+    prefs.putString("web_pw", config.web_password);
     prefs.putString("auth_token", config.auth_token);
     prefs.putString("dex_user", config.dexcom_username);
     prefs.putString("dex_pass", config.dexcom_password);
@@ -532,8 +525,6 @@ void config_save() {
     // Auto-cycle
     prefs.putBool("acyc_en", config.auto_cycle_enabled);
     prefs.putInt("acyc_sec", config.auto_cycle_sec);
-    prefs.putBool("ota_auto", config.auto_update_enabled);
-    prefs.putInt("ota_hour", config.auto_update_hour);
 
     Serial.println("[CONFIG] Saved to NVS");
 }

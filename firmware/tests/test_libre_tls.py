@@ -93,11 +93,6 @@ class LibreTlsTests(unittest.TestCase):
         self.assertIn("Go Daddy Root Certificate Authority - G2", subjects)
         self.assertIn("Amazon Root CA 1", subjects)
 
-        # Cloudflare may reissue from any of its CAs, so keep its full root set
-        cloudflare = re.findall(PEM_RE, read("include", "ota_trusted_roots.h"), flags=re.DOTALL)
-        normalized = {re.sub(r"\s", "", pem) for pem in bundle}
-        for pem in cloudflare:
-            self.assertIn(re.sub(r"\s", "", pem), normalized)
 
     def test_bundle_roots_are_not_about_to_expire(self):
         bundle = re.findall(PEM_RE, read("include", "libre_trusted_roots.h"), flags=re.DOTALL)

@@ -42,7 +42,7 @@ const char* wifi_get_ip() { return "192.0.2.1"; }
 static const char* local_host_stub = "";
 const char* clock_net_local_host() { return local_host_stub; }
 const char* wifi_get_ap_ip() { return "192.0.2.2"; }
-const char* wifi_get_ap_ssid() { return "SugarClock"; }
+const char* wifi_get_ap_ssid() { return "Pumpkin-Setup-E5F6"; }
 int wifi_ap_station_count() { return 0; }
 WifiTrialState wifi_trial_get_state() { return WIFI_TRIAL_IDLE; }
 const char* wifi_trial_ssid() { return "test"; }

@@ -1,587 +1,164 @@
 #include "ota_manager.h"
 #include "ota_boot_validation.h"
-#include "fleet_manager.h"
 
-#include "buzzer.h"
 #include "config_manager.h"
 #include "display.h"
-#include "glucose_engine.h"
-#include "http_client.h"
-#include "improv_serial.h"
-#include "notify_engine.h"
-#include "ota_manifest.h"
-#include "ota_policy.h"
-#include "ota_trusted_roots.h"
-#include "semver.h"
-#include "sensors.h"
-#include "time_engine.h"
-#include "timer_engine.h"
-#include "weather_client.h"
 #include "web_assets.h"
-#include "wifi_manager.h"
 
 #include <Arduino.h>
-#include <HTTPClient.h>
 #include <Preferences.h>
-#include <WiFiClientSecure.h>
-#include <esp_app_format.h>
+#include <Update.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
-#include <mbedtls/sha256.h>
-#include <memory>
-#include <new>
-#include <time.h>
+#include <string.h>
 
-#ifndef SUGARCLOCK_VERSION
-#error "SUGARCLOCK_VERSION must be injected from VERSION"
+#ifndef PUMPKIN_VERSION
+#error "PUMPKIN_VERSION must be injected from VERSION"
 #endif
 
-
-static const uint32_t OTA_DOWNLOAD_TIMEOUT_MS = 30000;
-static const size_t OTA_TRANSFER_BUFFER_BYTES = 4096;
+// NVS namespace kept from SugarClock so existing clocks keep their update state.
 static const char* OTA_NVS_NAMESPACE = "sugarota";
+static const uint32_t REBOOT_DELAY_MS = 1500;
 
 static portMUX_TYPE status_mux = portMUX_INITIALIZER_UNLOCKED;
 static OtaStatusSnapshot status_snapshot;
-static volatile bool worker_running = false;
 static bool validation_pending = false;
 static OtaBootValidationState boot_validation = {};
-static unsigned retry_failures = 0;
 static uint32_t last_render_ms = 0;
+static uint32_t reboot_at_ms = 0;
+static size_t upload_total = 0;
+static size_t upload_received = 0;
 
-struct ManagedInstallRequest {
-    char manifest_url[513];
-    char expected_version[24];
-    char expected_channel[16];
-    char expected_sha256[65];
-};
-static ManagedInstallRequest managed_request;
-
-class CappedManifestStream : public Stream {
-public:
-    CappedManifestStream(char* buffer, size_t capacity)
-        : buffer_(buffer), capacity_(capacity), length_(0), overflow_(false) {}
-
-    size_t write(uint8_t value) override { return write(&value, 1); }
-    size_t write(const uint8_t* data, size_t size) override {
-        size_t room = length_ < capacity_ ? capacity_ - length_ : 0;
-        size_t copied = size < room ? size : room;
-        if (copied) memcpy(buffer_ + length_, data, copied);
-        length_ += copied;
-        if (copied != size) overflow_ = true;
-        // Report consumption so HTTPClient can drain and close the response.
-        return size;
-    }
-    int available() override { return 0; }
-    int read() override { return -1; }
-    int peek() override { return -1; }
-    void flush() override {}
-    size_t length() const { return length_; }
-    bool overflowed() const { return overflow_; }
-
-private:
-    char* buffer_;
-    size_t capacity_;
-    size_t length_;
-    bool overflow_;
-};
-
-static void copy_text(char* destination, size_t size, const char* source) {
-    if (!destination || size == 0) return;
-    snprintf(destination, size, "%s", source ? source : "");
+static void copy_text(char* dst, size_t size, const char* src) {
+    strncpy(dst, src ? src : "", size - 1);
+    dst[size - 1] = '\0';
 }
 
-static void set_state(OtaState state, const char* error = nullptr,
-                      const char* safety = nullptr) {
-    if (state == OTA_ERROR || state == OTA_DEFERRED) {
-        bool deferred = fleet_record_update_outcome(state == OTA_DEFERRED, error);
-        if (deferred && state == OTA_ERROR) {
-            state = OTA_DEFERRED;
-            safety = "transient_update_error";
-            error = nullptr;
-        }
-    }
+static void set_state(OtaState state, const char* error = nullptr) {
     portENTER_CRITICAL(&status_mux);
     status_snapshot.state = state;
-    if (state == OTA_CHECKING) status_snapshot.last_error[0] = '\0';
+    if (state == OTA_RECEIVING) status_snapshot.last_error[0] = '\0';
     if (error) copy_text(status_snapshot.last_error, sizeof(status_snapshot.last_error), error);
-    if (safety) copy_text(status_snapshot.safety_reason, sizeof(status_snapshot.safety_reason), safety);
-    else if (state != OTA_DEFERRED) status_snapshot.safety_reason[0] = '\0';
     portEXIT_CRITICAL(&status_mux);
 }
 
 static void set_progress(int progress) {
     portENTER_CRITICAL(&status_mux);
-    status_snapshot.progress = constrain(progress, 0, 100);
+    status_snapshot.progress = progress;
     portEXIT_CRITICAL(&status_mux);
+}
+
+static OtaState current_state() {
+    portENTER_CRITICAL(&status_mux);
+    const OtaState state = status_snapshot.state;
+    portEXIT_CRITICAL(&status_mux);
+    return state;
 }
 
 const char* ota_state_name(OtaState state) {
     switch (state) {
         case OTA_IDLE: return "idle";
-        case OTA_CHECKING: return "checking";
-        case OTA_UPDATE_AVAILABLE: return "update_available";
-        case OTA_DEFERRED: return "deferred";
-        case OTA_DOWNLOADING: return "downloading";
-        case OTA_VERIFYING: return "verifying";
+        case OTA_RECEIVING: return "receiving";
         case OTA_PENDING_REBOOT: return "pending_reboot";
         case OTA_ERROR: return "error";
-        default: return "unknown";
     }
-}
-
-static bool state_is_busy(OtaState state) {
-    return worker_running || state == OTA_CHECKING || state == OTA_DOWNLOADING ||
-           state == OTA_VERIFYING || state == OTA_PENDING_REBOOT;
+    return "unknown";
 }
 
 bool ota_is_busy() {
-    OtaState state;
+    const OtaState state = current_state();
+    return state == OTA_RECEIVING || state == OTA_PENDING_REBOOT;
+}
+
+void ota_get_status(OtaStatusSnapshot& output) {
     portENTER_CRITICAL(&status_mux);
-    state = status_snapshot.state;
+    output = status_snapshot;
     portEXIT_CRITICAL(&status_mux);
-    return state_is_busy(state);
 }
 
-static OtaSafetyInputs collect_safety_inputs() {
-    AppConfig& cfg = config_get();
-    const GlucoseReading& reading = http_get_reading();
-    bool urgent_glucose = reading.valid &&
-        (reading.glucose < cfg.thresh_urgent_low || reading.glucose > cfg.thresh_urgent_high);
-    TimerState timer_state = timer_get_state();
+// ---------------------------------------------------------------------------
+// Upload (called from the web server's upload callback)
 
-    OtaSafetyInputs inputs = {};
-    inputs.wifi_connected = wifi_is_connected();
-    inputs.time_available = time_is_available();
-    inputs.setup_or_ap_active = wifi_is_ap_mode() || improv_is_active();
-    inputs.buzzer_active = buzzer_is_active();
-    inputs.urgent_notification = notify_is_urgent();
-    inputs.urgent_glucose = urgent_glucose;
-    inputs.timer_running = timer_state == TIMER_RUNNING || timer_state == TIMER_BREAK ||
-                           timer_state == TIMER_LONG_BREAK;
-    inputs.stopwatch_running = stopwatch_get_state() == SW_RUNNING;
-    inputs.battery_percent = sensors_get_battery_percent();
-    inputs.free_heap = ESP.getFreeHeap();
-    return inputs;
-}
-
-bool ota_automatic_install_is_safe() {
-    return ota_safety_failure(collect_safety_inputs()) == nullptr;
-}
-
-static String resolve_redirect(const String& current, const String& location) {
-    if (location.startsWith("https://")) return location;
-    if (!location.startsWith("/")) return String();
-    int scheme_end = current.indexOf("//");
-    if (scheme_end < 0) return String();
-    int path_start = current.indexOf('/', scheme_end + 2);
-    String origin = path_start < 0 ? current : current.substring(0, path_start);
-    return origin + location;
-}
-
-static int open_https_with_redirects(HTTPClient& http, WiFiClientSecure& client,
-                                     String& url, char* error, size_t error_size) {
-    for (int redirect = 0; redirect <= 5; ++redirect) {
-        if (!url.startsWith("https://")) {
-            copy_text(error, error_size, "redirect_not_https");
-            return -1;
-        }
-        if (!http.begin(client, url)) {
-            copy_text(error, error_size, "https_begin_failed");
-            return -1;
-        }
-        http.setConnectTimeout(10000);
-        http.setTimeout(15000);
-        http.setUserAgent(String("SugarClock/") + SUGARCLOCK_VERSION);
-        int code = http.GET();
-        if (code != HTTP_CODE_MOVED_PERMANENTLY && code != HTTP_CODE_FOUND &&
-            code != HTTP_CODE_TEMPORARY_REDIRECT && code != HTTP_CODE_PERMANENT_REDIRECT) {
-            return code;
-        }
-        String next = resolve_redirect(url, http.getLocation());
-        http.end();
-        if (next.isEmpty()) {
-            copy_text(error, error_size, "invalid_https_redirect");
-            return -1;
-        }
-        url = next;
-    }
-    copy_text(error, error_size, "too_many_redirects");
-    return -1;
-}
-
-static bool download_manifest_from_url(const char* manifest_url, OtaManifest& manifest,
-                                       char* error, size_t error_size) {
-    WiFiClientSecure client;
-    client.setCACert(OTA_TRUSTED_ROOTS_PEM);
-    client.setHandshakeTimeout(15);
-    HTTPClient http;
-    String url = manifest_url ? manifest_url : "";
-    int code = open_https_with_redirects(http, client, url, error, error_size);
-    if (code != HTTP_CODE_OK) {
-        if (code >= 0) snprintf(error, error_size, "manifest_http_%d", code);
-        else if (!error[0]) copy_text(error, error_size, "manifest_transport_failed");
-        http.end();
+bool ota_upload_begin(size_t total_size) {
+    if (ota_is_busy()) return false;
+    if (validation_pending) {
+        // A second image before this one is accepted could leave no valid fallback.
+        set_state(OTA_ERROR, "previous_update_still_validating");
         return false;
     }
-
-    int content_length = http.getSize();
-    if (content_length > OTA_MANIFEST_MAX_BYTES) {
-        copy_text(error, error_size, "manifest_too_large");
-        http.end();
+    const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
+    if (!target) {
+        set_state(OTA_ERROR, "no_inactive_partition");
         return false;
     }
-
-    char* body = static_cast<char*>(malloc(OTA_MANIFEST_MAX_BYTES + 1));
-    if (!body) {
-        copy_text(error, error_size, "heap_low");
-        http.end();
+    if (total_size && total_size > target->size) {
+        set_state(OTA_ERROR, "firmware_too_large");
         return false;
     }
-    CappedManifestStream sink(body, OTA_MANIFEST_MAX_BYTES);
-    int written = http.writeToStream(&sink);
-    http.end();
-    if (written < 0 || sink.overflowed() || sink.length() == 0 ||
-        (content_length >= 0 && sink.length() != static_cast<size_t>(content_length))) {
-        copy_text(error, error_size, sink.overflowed() ? "manifest_too_large" : "manifest_read_failed");
-        free(body);
+    if (!Update.begin(total_size ? total_size : UPDATE_SIZE_UNKNOWN, U_FLASH)) {
+        set_state(OTA_ERROR, Update.errorString());
         return false;
     }
-    body[sink.length()] = '\0';
-    bool parsed = ota_manifest_parse(body, sink.length(), manifest, error, error_size);
-    free(body);
-    return parsed;
-}
-
-
-
-static bool constant_time_equal(const uint8_t* a, const uint8_t* b, size_t length) {
-    uint8_t difference = 0;
-    for (size_t i = 0; i < length; ++i) difference |= a[i] ^ b[i];
-    return difference == 0;
-}
-
-static bool hex_to_bytes(const char* hex, uint8_t* output, size_t output_size) {
-    if (!hex || strlen(hex) != output_size * 2) return false;
-    for (size_t i = 0; i < output_size; ++i) {
-        char pair[3] = {hex[i * 2], hex[i * 2 + 1], 0};
-        char* end = nullptr;
-        unsigned long value = strtoul(pair, &end, 16);
-        if (!end || *end != '\0') return false;
-        output[i] = static_cast<uint8_t>(value);
-    }
+    upload_total = total_size;
+    upload_received = 0;
+    set_progress(total_size ? 0 : -1);
+    set_state(OTA_RECEIVING);
+    Serial.printf("[OTA] Receiving firmware upload (%u bytes) into %s\n",
+                  static_cast<unsigned>(total_size), target->label);
     return true;
 }
 
-static bool save_pending_metadata(const OtaManifest& manifest,
-                                  const esp_partition_t* target) {
-    Preferences prefs;
-    if (!prefs.begin(OTA_NVS_NAMESPACE, false)) return false;
-    bool ok = prefs.putBool("pending", true) &&
-              prefs.putString("previous", SUGARCLOCK_VERSION) > 0 &&
-              prefs.putString("new", manifest.version) > 0 &&
-              prefs.putString("partition", target ? target->label : "") > 0;
-    prefs.end();
-    return ok;
+bool ota_upload_write(const uint8_t* data, size_t len) {
+    if (current_state() != OTA_RECEIVING) return false;
+    if (Update.write(const_cast<uint8_t*>(data), len) != len) {
+        Serial.printf("[OTA] Write failed: %s\n", Update.errorString());
+        set_state(OTA_ERROR, Update.errorString());
+        Update.abort();
+        return false;
+    }
+    upload_received += len;
+    if (upload_total) set_progress(static_cast<int>((upload_received * 100ULL) / upload_total));
+    return true;
 }
+
+bool ota_upload_end() {
+    if (current_state() != OTA_RECEIVING) return false;
+    // end(true) verifies the image and selects it for the next boot.
+    if (!Update.end(true)) {
+        Serial.printf("[OTA] Image rejected: %s\n", Update.errorString());
+        set_state(OTA_ERROR, Update.errorString());
+        return false;
+    }
+    Preferences prefs;
+    if (prefs.begin(OTA_NVS_NAMESPACE, false)) {
+        prefs.putBool("pending", true);
+        prefs.putString("previous", PUMPKIN_VERSION);
+        prefs.remove("last_error");
+        prefs.end();
+    }
+    set_progress(100);
+    set_state(OTA_PENDING_REBOOT);
+    reboot_at_ms = millis() + REBOOT_DELAY_MS;
+    if (reboot_at_ms == 0) reboot_at_ms = 1;
+    Serial.printf("[OTA] Upload complete (%u bytes); restarting into the new firmware\n",
+                  static_cast<unsigned>(upload_received));
+    return true;
+}
+
+void ota_upload_abort(const char* reason) {
+    if (current_state() == OTA_RECEIVING) Update.abort();
+    set_state(OTA_ERROR, reason ? reason : "aborted");
+}
+
+// ---------------------------------------------------------------------------
+// Boot: first-boot validation of a freshly uploaded image, rollback reporting
 
 static void clear_pending_metadata() {
     Preferences prefs;
     if (!prefs.begin(OTA_NVS_NAMESPACE, false)) return;
     prefs.remove("pending");
     prefs.remove("previous");
-    prefs.remove("new");
-    prefs.remove("partition");
     prefs.end();
-}
-
-static bool install_firmware(const OtaManifest& manifest, char* error, size_t error_size) {
-    const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
-    if (!target) return (copy_text(error, error_size, "no_inactive_partition"), false);
-    if (manifest.size > target->size) return (copy_text(error, error_size, "firmware_too_large"), false);
-
-    // This function can be inlined into the update task. A local 4 KiB array
-    // would reserve stack space even during the earlier TLS handshakes.
-    std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[OTA_TRANSFER_BUFFER_BYTES]);
-    if (!buffer) return (copy_text(error, error_size, "heap_low"), false);
-
-    WiFiClientSecure client;
-    client.setCACert(OTA_TRUSTED_ROOTS_PEM);
-    client.setHandshakeTimeout(15);
-    HTTPClient http;
-    String url = manifest.firmware_url;
-    int code = open_https_with_redirects(http, client, url, error, error_size);
-    if (code != HTTP_CODE_OK) {
-        if (code >= 0) snprintf(error, error_size, "firmware_http_%d", code);
-        http.end();
-        return false;
-    }
-    if (http.getSize() != static_cast<int>(manifest.size)) {
-        copy_text(error, error_size, "firmware_size_mismatch");
-        http.end();
-        return false;
-    }
-
-    // Redirects/TLS may consume the authorization lease or cross a local window.
-    // Recheck just before touching flash, and retry with a new authorization later.
-    const char* safety = ota_safety_failure(collect_safety_inputs());
-    if (!fleet_update_authorization_current() || safety) {
-        copy_text(error, error_size, "authorization_or_safety_changed");
-        http.end();
-        return false;
-    }
-    esp_ota_handle_t handle = 0;
-    bool ota_active = false;
-    if (esp_ota_begin(target, manifest.size, &handle) != ESP_OK) {
-        copy_text(error, error_size, "ota_begin_failed");
-        http.end();
-        return false;
-    }
-    ota_active = true;
-
-    mbedtls_sha256_context sha;
-    mbedtls_sha256_init(&sha);
-    mbedtls_sha256_starts_ret(&sha, 0);
-    WiFiClient* stream = http.getStreamPtr();
-    uint32_t received = 0;
-    uint32_t last_data_ms = millis();
-    bool ok = true;
-
-    while (received < manifest.size) {
-        int available = stream->available();
-        if (available <= 0) {
-            if (!http.connected() || millis() - last_data_ms > OTA_DOWNLOAD_TIMEOUT_MS) {
-                copy_text(error, error_size, !http.connected() ? "firmware_short_read" : "firmware_timeout");
-                ok = false;
-                break;
-            }
-            vTaskDelay(pdMS_TO_TICKS(10));
-            continue;
-        }
-        size_t remaining = manifest.size - received;
-        size_t chunk = min(static_cast<size_t>(available), min(OTA_TRANSFER_BUFFER_BYTES, remaining));
-        int count = stream->read(buffer.get(), chunk);
-        if (count <= 0) continue;
-        last_data_ms = millis();
-        mbedtls_sha256_update_ret(&sha, buffer.get(), count);
-        if (esp_ota_write(handle, buffer.get(), count) != ESP_OK) {
-            copy_text(error, error_size, "ota_write_failed");
-            ok = false;
-            break;
-        }
-        received += count;
-        set_progress(static_cast<int>((static_cast<uint64_t>(received) * 100ULL) / manifest.size));
-    }
-    http.end();
-
-    uint8_t actual_sha[32];
-    mbedtls_sha256_finish_ret(&sha, actual_sha);
-    mbedtls_sha256_free(&sha);
-    uint8_t expected_sha[32];
-    if (ok && (!hex_to_bytes(manifest.sha256, expected_sha, sizeof(expected_sha)) ||
-               !constant_time_equal(actual_sha, expected_sha, sizeof(actual_sha)))) {
-        copy_text(error, error_size, "sha256_mismatch");
-        ok = false;
-    }
-
-    if (ok) {
-        set_state(OTA_VERIFYING);
-        esp_err_t end_result = esp_ota_end(handle);
-        ota_active = false;  // esp_ota_end consumes the handle, success or failure.
-        if (end_result != ESP_OK) {
-            copy_text(error, error_size, "invalid_esp_image");
-            ok = false;
-        }
-    }
-    if (!ok && ota_active) esp_ota_abort(handle);
-    if (!ok) return false;
-
-    esp_app_desc_t description = {};
-    if (esp_ota_get_partition_description(target, &description) != ESP_OK) {
-        copy_text(error, error_size, "image_description_failed");
-        return false;
-    }
-    SemVer image_version = SemVer::parse(description.version);
-    if (image_version.valid && image_version != SemVer::parse(manifest.version)) {
-        copy_text(error, error_size, "image_version_mismatch");
-        return false;
-    }
-    if (!image_version.valid) {
-        Serial.printf("[OTA] Framework image metadata version '%s' is non-semantic; signed manifest version used\n",
-                      description.version);
-    }
-
-    if (esp_ota_set_boot_partition(target) != ESP_OK) {
-        copy_text(error, error_size, "set_boot_partition_failed");
-        return false;
-    }
-    if (!save_pending_metadata(manifest, target)) {
-        const esp_partition_t* running = esp_ota_get_running_partition();
-        if (running) esp_ota_set_boot_partition(running);
-        clear_pending_metadata();
-        copy_text(error, error_size, "pending_metadata_failed");
-        return false;
-    }
-    Serial.printf("[OTA] Verified %lu bytes; boot partition set to %s for v%s\n",
-                  static_cast<unsigned long>(received), target->label, manifest.version);
-    return true;
-}
-
-static void record_failure(const char* error) {
-    ++retry_failures;
-    Preferences prefs;
-    if (prefs.begin(OTA_NVS_NAMESPACE, false)) {
-        prefs.putUInt("failures", retry_failures);
-        prefs.putString("last_error", error ? error : "unknown");
-        prefs.end();
-    }
-    set_state(OTA_ERROR, error ? error : "unknown");
-    Serial.printf("[OTA] Failed: %s\n", error ? error : "unknown");
-}
-
-static void run_ota_update() {
-    char error[64] = "";
-
-    // ota_worker resumes both services after every return, including heap_low.
-    http_set_paused(true);
-    weather_set_paused(true);
-
-    if (!wifi_is_connected()) {
-        record_failure("wifi_unavailable");
-        return;
-    }
-    if (!time_is_available()) {
-        record_failure("time_unavailable");
-        return;
-    }
-
-    {
-        // Keep the manifest off the task stack while TLS is using it. This
-        // helper returns normally so allocation cleanup precedes vTaskDelete.
-        std::unique_ptr<OtaManifest> storage(new (std::nothrow) OtaManifest{});
-        if (!storage) {
-            record_failure("heap_low");
-            return;
-        }
-        OtaManifest& candidate = *storage;
-        const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
-        if (!target) copy_text(error, sizeof(error), "no_inactive_partition");
-        else if (!download_manifest_from_url(managed_request.manifest_url, candidate,
-                                             error, sizeof(error))) {}
-        else if (!ota_manifest_validate_identity_and_formats_for_channel(
-                     candidate, managed_request.expected_channel, error, sizeof(error))) {}
-        else if (!ota_manifest_verify_signature(candidate, error, sizeof(error))) {}
-        else if (strcmp(candidate.version, managed_request.expected_version) != 0)
-            copy_text(error, sizeof(error), "managed_version_mismatch");
-        else if (strcmp(candidate.sha256, managed_request.expected_sha256) != 0)
-            copy_text(error, sizeof(error), "managed_sha256_mismatch");
-        else if (!ota_manifest_validate_offer_for_channel(
-                     candidate, managed_request.expected_channel, SUGARCLOCK_VERSION,
-                     target->size, error, sizeof(error))) {}
-        else {
-            portENTER_CRITICAL(&status_mux);
-            copy_text(status_snapshot.available_version,
-                      sizeof(status_snapshot.available_version), candidate.version);
-            portEXIT_CRITICAL(&status_mux);
-
-            const char* safety = ota_safety_failure(collect_safety_inputs());
-            if (safety) {
-                set_state(OTA_DEFERRED, nullptr, safety);
-                return;
-            }
-            if (!fleet_authorize_update(managed_request.manifest_url,
-                                        managed_request.expected_version,
-                                        managed_request.expected_channel,
-                                        managed_request.expected_sha256)) {
-                set_state(OTA_DEFERRED, nullptr, "authorization_unavailable");
-                return;
-            }
-            const char* final_safety = ota_safety_failure(collect_safety_inputs());
-            if (final_safety) {
-                set_state(OTA_DEFERRED, nullptr, final_safety);
-                return;
-            }
-            set_state(OTA_DOWNLOADING);
-            set_progress(0);
-            if (install_firmware(candidate, error, sizeof(error))) {
-                set_progress(100);
-                set_state(OTA_PENDING_REBOOT);
-                Serial.printf("[OTA] Minimum free update stack: %u bytes\n",
-                              static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
-                Serial.println("[OTA] Managed update complete; rebooting");
-                delay(1000);
-                ESP.restart();
-            } else {
-                if (strcmp(error, "authorization_or_safety_changed") == 0)
-                    set_state(OTA_DEFERRED, nullptr, error);
-                else record_failure(error[0] ? error : "install_failed");
-            }
-            return;
-        }
-        record_failure(error[0] ? error : "managed_manifest_failed");
-    }
-}
-
-static void ota_worker(void*) {
-    run_ota_update();
-    // vTaskDelete does not unwind C++ objects. All update-owned allocations
-    // have left scope before deleting this task, including on early failures.
-    Serial.printf("[OTA] Minimum free update stack: %u bytes\n",
-                  static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
-    http_set_paused(false);
-    weather_set_paused(false);
-    worker_running = false;
-    vTaskDelete(nullptr);
-}
-
-static OtaRequestResult start_worker() {
-    if (worker_running) return OTA_REQUEST_BUSY;
-    worker_running = true;
-    BaseType_t result = xTaskCreate(ota_worker, "ota_install", 12288, nullptr, 1, nullptr);
-    if (result != pdPASS) {
-        worker_running = false;
-        set_state(OTA_ERROR, "task_create_failed");
-        return OTA_REQUEST_INTERNAL_ERROR;
-    }
-    return OTA_REQUEST_QUEUED;
-}
-
-OtaRequestResult ota_request_check() {
-    // Never fetch GitHub Latest: every check must respect current rollout membership.
-    return fleet_request_check() ? OTA_REQUEST_QUEUED : OTA_REQUEST_BUSY;
-}
-
-OtaRequestResult ota_request_install(bool manual) {
-    // Even local/manual retries require a new fleet offer and authorization.
-    if (!manual) return ota_request_check();
-    return fleet_request_manual_install() ? OTA_REQUEST_QUEUED : OTA_REQUEST_BUSY;
-}
-
-OtaRequestResult ota_request_managed_install(const char* manifest_url,
-                                             const char* expected_version,
-                                             const char* expected_channel,
-                                             const char* expected_sha256) {
-    if (ota_is_busy()) return OTA_REQUEST_BUSY;
-    if (!manifest_url || strncmp(manifest_url, "https://", 8) != 0 ||
-        strlen(manifest_url) >= sizeof(managed_request.manifest_url) ||
-        !expected_version || strlen(expected_version) >= sizeof(managed_request.expected_version) ||
-        !expected_channel ||
-        (strcmp(expected_channel, "stable") != 0 && strcmp(expected_channel, "preview") != 0) ||
-        !expected_sha256 || strlen(expected_sha256) != 64) {
-        return OTA_REQUEST_INTERNAL_ERROR;
-    }
-    // A previous rollback must not be mistaken for the outcome of this attempt.
-    Preferences outcome;
-    if (!outcome.begin(OTA_NVS_NAMESPACE, false)) return OTA_REQUEST_INTERNAL_ERROR;
-    outcome.remove("last_error");
-    outcome.end();
-    copy_text(managed_request.manifest_url, sizeof(managed_request.manifest_url), manifest_url);
-    copy_text(managed_request.expected_version, sizeof(managed_request.expected_version), expected_version);
-    copy_text(managed_request.expected_channel, sizeof(managed_request.expected_channel), expected_channel);
-    copy_text(managed_request.expected_sha256, sizeof(managed_request.expected_sha256), expected_sha256);
-    set_state(OTA_CHECKING);
-    set_progress(0);
-    return start_worker();
 }
 
 static void inspect_boot_state() {
@@ -598,45 +175,36 @@ static void inspect_boot_state() {
         validation_pending = true;
         ota_boot_validation_begin(boot_validation, millis());
         status_snapshot.pending_verification = true;
-        Serial.printf("[OTA] v%s pending local first-boot validation\n", SUGARCLOCK_VERSION);
+        Serial.printf("[OTA] v%s pending local first-boot validation\n", PUMPKIN_VERSION);
     }
 
     Preferences prefs;
     if (!prefs.begin(OTA_NVS_NAMESPACE, false)) return;
-    bool pending_record = prefs.getBool("pending", false);
-    String previous = prefs.getString("previous", "");
-    String next = prefs.getString("new", "");
-    retry_failures = prefs.getUInt("failures", 0);
-    status_snapshot.last_check = prefs.getULong("last_check", 0);
+    const bool pending_record = prefs.getBool("pending", false);
+    const String previous = prefs.getString("previous", "");
     String saved_error = prefs.getString("last_error", "");
-    copy_text(status_snapshot.last_error, sizeof(status_snapshot.last_error), saved_error.c_str());
-    prefs.end();
-
-    if (pending_record) {
-        Serial.printf("[OTA] Pending metadata: previous=%s new=%s\n", previous.c_str(), next.c_str());
-        if (!validation_pending && next != SUGARCLOCK_VERSION) {
-            Serial.printf("[OTA] Rollback detected: v%s did not validate; restored v%s\n",
-                          next.c_str(), SUGARCLOCK_VERSION);
-            set_state(OTA_ERROR, "rollback_detected");
-            // Preserve the outcome through another power loss before fleet can ACK.
-            Preferences outcome;
-            if (outcome.begin(OTA_NVS_NAMESPACE, false)) {
-                outcome.putString("last_error", "rollback_detected");
-                outcome.end();
-            }
-            clear_pending_metadata();
-        } else if (!validation_pending && next == SUGARCLOCK_VERSION) {
-            clear_pending_metadata();
-        }
+    // Back on the firmware that did the upload while the upload is still
+    // marked pending: the new image never passed its checks (it failed them,
+    // or restarted first) and the bootloader returned here.
+    if (pending_record && !validation_pending && previous == PUMPKIN_VERSION) {
+        saved_error = "rollback_detected";
+        prefs.putString("last_error", saved_error);
     }
+    prefs.end();
+    copy_text(status_snapshot.last_error, sizeof(status_snapshot.last_error), saved_error.c_str());
+    // Shown until the next successful update.
+    status_snapshot.rolled_back = saved_error == "rollback_detected";
+    if (status_snapshot.rolled_back) {
+        Serial.println("[OTA] The last uploaded firmware failed its checks; this version was restored");
+    }
+    if (pending_record && !validation_pending) clear_pending_metadata();
 }
 
 void ota_init() {
     memset(&status_snapshot, 0, sizeof(status_snapshot));
     status_snapshot.state = OTA_IDLE;
-    copy_text(status_snapshot.current_version, sizeof(status_snapshot.current_version), SUGARCLOCK_VERSION);
+    copy_text(status_snapshot.current_version, sizeof(status_snapshot.current_version), PUMPKIN_VERSION);
     inspect_boot_state();
-    Serial.println("[OTA] Automatic updates follow fleet rollout authorization");
 }
 
 static void validate_pending_image() {
@@ -652,9 +220,18 @@ static void validate_pending_image() {
         const esp_err_t result = esp_ota_mark_app_valid_cancel_rollback();
         if (result == ESP_OK) {
             validation_pending = false;
-            status_snapshot.pending_verification = false;
             clear_pending_metadata();
-            Serial.printf("[OTA] Local validation passed; v%s marked valid\n", SUGARCLOCK_VERSION);
+            Preferences prefs;
+            if (prefs.begin(OTA_NVS_NAMESPACE, false)) {
+                prefs.remove("last_error");
+                prefs.end();
+            }
+            portENTER_CRITICAL(&status_mux);
+            status_snapshot.pending_verification = false;
+            status_snapshot.rolled_back = false;
+            status_snapshot.last_error[0] = '\0';
+            portEXIT_CRITICAL(&status_mux);
+            Serial.printf("[OTA] Local validation passed; v%s marked valid\n", PUMPKIN_VERSION);
         } else {
             Serial.printf("[OTA] Accepting image failed (%d); retrying in 5 seconds\n", result);
         }
@@ -662,6 +239,11 @@ static void validate_pending_image() {
         Serial.printf("[OTA] Local validation failed (config=%d assets=%u loops=%lu heap=%u); rolling back\n",
                       config_loaded, static_cast<unsigned>(assets),
                       static_cast<unsigned long>(boot_validation.loop_count), heap);
+        Preferences prefs;
+        if (prefs.begin(OTA_NVS_NAMESPACE, false)) {
+            prefs.putString("last_error", "rollback_detected");
+            prefs.end();
+        }
         const esp_err_t result = esp_ota_mark_app_invalid_rollback_and_reboot();
         // Successful rollback reboots. If it returns (e.g. no valid fallback),
         // keep the image pending and avoid retrying flash writes on every loop.
@@ -672,14 +254,17 @@ static void validate_pending_image() {
 static void render_update_status() {
     OtaStatusSnapshot snapshot;
     ota_get_status(snapshot);
-    if (snapshot.state != OTA_DOWNLOADING && snapshot.state != OTA_VERIFYING &&
-        snapshot.state != OTA_PENDING_REBOOT) return;
+    if (snapshot.state != OTA_RECEIVING && snapshot.state != OTA_PENDING_REBOOT) return;
     if (millis() - last_render_ms < 200) return;
     last_render_ms = millis();
     char text[8];
-    if (snapshot.state == OTA_DOWNLOADING) snprintf(text, sizeof(text), "%d%%", snapshot.progress);
-    else if (snapshot.state == OTA_VERIFYING) snprintf(text, sizeof(text), "VERIFY");
-    else snprintf(text, sizeof(text), "REBOOT");
+    if (snapshot.state == OTA_RECEIVING) {
+        if (snapshot.progress >= 0) snprintf(text, sizeof(text), "%d%%", snapshot.progress);
+        else snprintf(text, sizeof(text), "UPDATE");
+    } else {
+        snprintf(text, sizeof(text), "REBOOT");
+    }
+    display_set_brightness(40);
     display_clear();
     display_draw_text(text, 1, 0, display_color(0, 200, 200));
     display_show();
@@ -688,20 +273,10 @@ static void render_update_status() {
 void ota_loop() {
     validate_pending_image();
     render_update_status();
-
-    AppConfig& cfg = config_get();
-    portENTER_CRITICAL(&status_mux);
-    status_snapshot.auto_update_enabled = cfg.auto_update_enabled;
-    status_snapshot.auto_update_hour = cfg.auto_update_hour;
-    portEXIT_CRITICAL(&status_mux);
-
-    // Automatic scheduling is owned by fleet check-ins. In particular, a
-    // deferred cached manifest must never be installed without reauthorization.
-
-}
-
-void ota_get_status(OtaStatusSnapshot& output) {
-    portENTER_CRITICAL(&status_mux);
-    output = status_snapshot;
-    portEXIT_CRITICAL(&status_mux);
+    if (reboot_at_ms && static_cast<int32_t>(millis() - reboot_at_ms) >= 0) {
+        reboot_at_ms = 0;
+        Serial.println("[OTA] Restarting");
+        Serial.flush();
+        ESP.restart();
+    }
 }

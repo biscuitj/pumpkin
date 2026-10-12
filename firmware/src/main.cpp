@@ -19,11 +19,10 @@
 #include "improv_serial.h"
 #include "net_check.h"
 #include "ota_manager.h"
-#include "fleet_manager.h"
 #include "clock_net.h"
 
-#ifndef SUGARCLOCK_VERSION
-#error "SUGARCLOCK_VERSION must be injected from the root VERSION file"
+#ifndef PUMPKIN_VERSION
+#error "PUMPKIN_VERSION must be injected from the root VERSION file"
 #endif
 #define WDT_TIMEOUT_SEC  30
 
@@ -35,6 +34,31 @@ static unsigned long last_diag_ms = 0;
 #define DIAG_INTERVAL_MS 60000  // log diagnostics every 60s
 
 static bool webserver_started = false;
+
+// 8x8 pixel pumpkin shown while the clock starts: stem, body, two ridges.
+static void draw_boot_pumpkin() {
+    static const char* const ROWS[8] = {
+        "...gg...",
+        "..oOOo..",
+        ".oOooOo.",
+        "ooOooOoo",
+        "ooOooOoo",
+        "ooOooOoo",
+        ".oOooOo.",
+        "..oooo..",
+    };
+    const uint16_t orange = display_color(255, 117, 24);
+    const uint16_t ridge = display_color(200, 70, 0);
+    const uint16_t stem = display_color(60, 160, 40);
+    const int x0 = (MATRIX_WIDTH - 8) / 2;
+    for (int y = 0; y < 8; ++y) {
+        for (int x = 0; x < 8; ++x) {
+            const char c = ROWS[y][x];
+            if (c == '.') continue;
+            display_draw_pixel(x0 + x, y, c == 'g' ? stem : c == 'O' ? ridge : orange);
+        }
+    }
+}
 
 void setup() {
     // 1. Serial init
@@ -48,7 +72,7 @@ void setup() {
     esp_reset_reason_t reason = esp_reset_reason();
     Serial.println();
     Serial.println("================================");
-    Serial.printf("SugarClock v%s\n", SUGARCLOCK_VERSION);
+    Serial.printf("Pumpkin v%s\n", PUMPKIN_VERSION);
     Serial.printf("Reset reason: %d\n", reason);
     if (reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT) {
         Serial.println("WARNING: Previous watchdog reset!");
@@ -61,7 +85,7 @@ void setup() {
     // 4. Initialize display + show boot screen
     display_init();
     display_clear();
-    display_draw_text("SUGAR", 1, 0, display_color(0, 200, 200));
+    draw_boot_pumpkin();
     display_show();
 
     // 5. Init buttons
@@ -103,13 +127,10 @@ void setup() {
     // 14. Init glucose engine (state machine)
     engine_init();
 
-    // Secure OTA is initialized only after local configuration, display, web
-    // assets/routes, and the main engines are ready for first-boot validation.
+    // Firmware updates (web upload) and first-boot validation of a new image.
+    // Initialized only after configuration, display, web assets and the main
+    // engines are ready, because the validation checks those.
     ota_init();
-
-    // Fleet registration/check-ins run independently of the clock's core
-    // display and glucose paths. A fleet outage never blocks normal operation.
-    fleet_init();
 
     // 14. Enable watchdog timer
     esp_task_wdt_init(WDT_TIMEOUT_SEC, true);
@@ -224,12 +245,9 @@ void loop() {
     // 7. Engine state machine + rendering
     engine_loop();
 
-    // 8. Secure updater scheduling/rollback validation. Run after the normal
-    // renderer so an active update progress screen remains visible.
+    // 8. Firmware update progress, restart after an upload, and first-boot
+    // validation. Runs after the renderer so the progress screen stays visible.
     ota_loop();
-
-    // Poll the management service only when Wi-Fi and trusted time are ready.
-    fleet_loop();
 
     // Performance tracking
     unsigned long loop_time = millis() - loop_start;

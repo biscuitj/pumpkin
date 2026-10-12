@@ -35,4 +35,4 @@ def check_ota_boot_validation(framework_source, firmware_map):
     address, owner, symbol_address = definitions[0]
     if (int(address, 16) == 0 or int(address, 16) != int(symbol_address, 16)
             or not owner.endswith("/src/ota_boot_validation.cpp.o")):
-        raise ValueError("live verifyRollbackLater is not owned by SugarClock ota_boot_validation.cpp.o")
+        raise ValueError("live verifyRollbackLater is not owned by ota_boot_validation.cpp.o")

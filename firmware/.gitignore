@@ -22,9 +22,6 @@ DerivedData/
 .vscode/
 .claude/
 
-# Fleet service local state and secrets
-fleet/.env
-fleet-dev.db*
 simulator-state.json
 __pycache__/
 *.pyc

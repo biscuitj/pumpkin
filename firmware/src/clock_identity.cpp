@@ -9,11 +9,11 @@ void clock_id_from_mac(const uint8_t mac[6], char* out, size_t out_size) {
 }
 
 void clock_default_name(const uint8_t mac[6], char* out, size_t out_size) {
-    snprintf(out, out_size, "sugarclock-%02x%02x", mac[4], mac[5]);
+    snprintf(out, out_size, "pumpkin-%02x%02x", mac[4], mac[5]);
 }
 
 void clock_setup_ssid(const uint8_t mac[6], char* out, size_t out_size) {
-    snprintf(out, out_size, "SugarClock-Setup-%02X%02X", mac[4], mac[5]);
+    snprintf(out, out_size, "Pumpkin-Setup-%02X%02X", mac[4], mac[5]);
 }
 
 namespace {

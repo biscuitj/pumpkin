@@ -378,7 +378,7 @@ void engine_init() {
 
     // Show initial boot frame (scrolling animation starts in engine_loop)
     display_clear();
-    display_draw_text("SugarClock", MATRIX_WIDTH, 0, display_color(255, 255, 255));
+    display_draw_text("Pumpkin", MATRIX_WIDTH, 0, display_color(255, 117, 24));
     display_show();
 }
 
@@ -390,7 +390,7 @@ static DisplayState evaluate_state() {
     // Stale readings, repeated glucose fetch failures, or AP setup release it.
     if (engine_low_glucose_lock_active()) return STATE_GLUCOSE_DISPLAY;
 
-    // Boot screen: scroll "SugarClock" across the display
+    // Boot screen: scroll "Pumpkin" across the display
     if (millis() - boot_start_ms < 3000) {
         return STATE_BOOT;
     }
@@ -504,16 +504,16 @@ static void render_state(DisplayState state) {
     switch (state) {
         case STATE_BOOT: {
             display_clear();
-            // Marquee scroll "SugarClock" across the display
+            // Marquee scroll "Pumpkin" across the display
             unsigned long elapsed = millis() - boot_start_ms;
-            const char* boot_text = "SugarClock";
-            int text_w = 10 * 6; // 60px
+            const char* boot_text = "Pumpkin";
+            int text_w = 7 * 6; // 42px
             int start_x = MATRIX_WIDTH;  // enter from right edge
             int end_x = -text_w;         // exit past left edge
-            int total_dist = start_x - end_x; // 92px total travel
+            int total_dist = start_x - end_x; // 74px total travel
             int scroll_x = start_x - (int)((long)total_dist * elapsed / 3000);
             if (scroll_x < end_x) scroll_x = end_x;
-            display_draw_text(boot_text, scroll_x, 0, display_color(255, 255, 255));
+            display_draw_text(boot_text, scroll_x, 0, display_color(255, 117, 24));
             display_show();
             break;
         }
@@ -953,7 +953,7 @@ static void render_state(DisplayState state) {
             display_clear();
             const char* text = connection_info_buf[0]
                 ? connection_info_buf
-                : "SugarClock connection information unavailable";
+                : "Connection information unavailable";
             bool complete = display_scroll_text(
                 text, 0, display_color(255, 255, 255), 55);
             display_show();
@@ -1309,10 +1309,10 @@ void engine_show_connection_info() {
         }
     } else if (wifi_is_ap_mode()) {
         snprintf(connection_info_buf, sizeof(connection_info_buf),
-                 "To set up SugarClock, visit %s", wifi_get_ap_ip());
+                 "To set up this clock, visit %s", wifi_get_ap_ip());
     } else {
         snprintf(connection_info_buf, sizeof(connection_info_buf),
-                 "SugarClock is not connected to WiFi");
+                 "This clock is not connected to WiFi");
     }
 
     connection_info_visible = true;
