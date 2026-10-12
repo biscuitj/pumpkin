@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/pumpkin-logo-dark.svg">
+    <img src="docs/assets/pumpkin-logo.svg" alt="Pumpkin" width="420">
+  </picture>
+</p>
+
 # Pumpkin
 
 A glucose display for a child on a Medtronic 780G pump: a pixel clock in the
