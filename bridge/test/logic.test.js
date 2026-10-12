@@ -69,7 +69,7 @@ test('extractIob handles shapes and freshness', () => {
   assert.equal(extractIob(null, NOW).units, null);
 });
 
-// Real ns10be sample (2026-10-09): ids carry the insert time, batches share one.
+// Real Nightscout sample (2026-10-09): ids carry the insert time, batches share one.
 const REAL = [
   ['6ac8c412087277253b1f0268', 1791542220000], ['6ac8c2e5087277253b1ef536', 1791541920000],
   ['6ac8c2e5087277253b1ef535', 1791541620000], ['6ac8c08c087277253b1eda53', 1791541320000],

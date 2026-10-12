@@ -32,13 +32,13 @@ export function deviceTimeOffsetMs(pd) {
 const TREND_MAP = {
   UP: { trend: 'SingleUp', arrows: 1 },
   UP_DOUBLE: { trend: 'DoubleUp', arrows: 2 },
-  UP_TRIPLE: { trend: 'DoubleUp', arrows: 3 }, // SugarClock has no triple arrow
+  UP_TRIPLE: { trend: 'DoubleUp', arrows: 3 }, // the clock has no triple arrow
   DOWN: { trend: 'SingleDown', arrows: -1 },
   DOWN_DOUBLE: { trend: 'DoubleDown', arrows: -2 },
   DOWN_TRIPLE: { trend: 'DoubleDown', arrows: -3 },
 };
 
-/** Medtronic trend -> SugarClock direction; null for NONE/unknown (caller falls back to slope). */
+/** Medtronic trend -> Nightscout/clock direction; null for NONE/unknown (caller falls back to slope). */
 export function mapCareLinkTrend(value) {
   return TREND_MAP[String(value || '').toUpperCase()] || null;
 }
@@ -70,6 +70,23 @@ CATEGORIES.forEach((c, rank) => {
   (c.gm || []).forEach((code) => BY_GM.set(code, { ...c, rank }));
 });
 const OTHER = { id: 'other', short: '', rank: CATEGORIES.length };
+
+// English short texts per category (the `short` above is Dutch). LANG = "en"|"nl".
+const SHORT_EN = {
+  delivery: 'DELIVERY STOPPED', set_connect: 'CONNECT SET', battery_now: 'REPLACE BATTERY',
+  reservoir_empty: 'RESERVOIR EMPTY', sensor_change: 'REPLACE SENSOR', set_change: 'CHANGE SET',
+  reservoir_low: 'RESERVOIR LOW', battery_low: 'BATTERY LOW', transmitter: 'CHARGE TRANSMITTER',
+  sensor_signal: 'NO SENSOR SIGNAL', bg_required: 'CHECK BG', calibration: 'CALIBRATE',
+  meal_bolus: 'MEAL BOLUS?', phone: 'PHONE BATTERY',
+};
+
+/** Short alert text in the configured language ("nl" or anything else = English). */
+export function alertShort(alert, lang) {
+  if (String(lang || '').toLowerCase() === 'nl') return alert.short;
+  if (SHORT_EN[alert.category]) return SHORT_EN[alert.category];
+  if (alert.text && !/^Pump alert /.test(alert.text)) return String(alert.text).toUpperCase();
+  return `PUMP ALERT ${alert.code && alert.code !== 'unknown' ? alert.code : ''}`.trim();
+}
 
 /** Classify one active notification. */
 export function classifyNotification(n, deviceFamily) {

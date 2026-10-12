@@ -1,32 +1,36 @@
-# SugarClock bridge
+# Pumpkin bridge
 
-Cloudflare Worker that is the only CareLink client:
+A Cloudflare Worker that follows a Medtronic MiniMed 780G through CareLink, as a
+care partner, and feeds the Pumpkin clock:
 
-- it reads CareLink as a care partner (glucose, the pump's trend and active
-  insulin, pump alerts, temp target);
-- serves the SugarClock one JSON document (`/clock`);
-- uploads the same data to Nightscout (ns10be), which replaces ns10be's own
-  CareLink poller. Nightscout keeps its graphs, follower apps and history, and now
-  also gets pump IOB, reservoir and battery, boluses, carbs, finger BGs and temp
-  targets.
+- it reads CareLink: glucose, the pump's trend and active insulin, pump alerts,
+  temp target, sensor, reservoir and batteries;
+- serves the clock one JSON document (`/clock`);
+- optionally uploads the same data to Nightscout, so it can replace
+  Nightscout's own CareLink poller. Nightscout then also gets the pump's IOB,
+  reservoir and battery, boluses, carbs, finger BGs and temp targets.
 
-Nightscout stays the fallback for glucose and time in range if KV or CareLink
-has a problem.
+Nightscout is optional. Without it the bridge runs on CareLink alone. With it,
+Nightscout is also the fallback for glucose and time in range when CareLink has
+a problem.
+
+Installing it: **[../docs/INSTALL.md](../docs/INSTALL.md)**. Data structures:
+[../docs/DATA-SCHEMA.md](../docs/DATA-SCHEMA.md).
 
 ```json
 {"glucose":142,"trend":"SingleUp","timestamp":1791555420,"message":"","force_mode":-1,
  "tir":78,"tir_below":4,"tir_above":18,"iob":1.35,"next_poll_sec":200,
  "source":"carelink","trend_arrows":1,
- "alert":"SET AANSLUITEN",
- "alerts":[{"short":"SET AANSLUITEN","text":"…","category":"set_connect","since":1791554400,"silenced":false}],
+ "alert":"CONNECT SET",
+ "alerts":[{"short":"CONNECT SET","text":"…","category":"set_connect","since":1791554400,"silenced":false}],
  "warnings":["warning","set"],
  "temp_target":true,"temp_target_min":95,
  "sensor_hours_left":31,"reservoir_units":42.5,"pump_battery":75,"phone_battery":88,
  "bridge_alert":""}
 ```
 
-The first ten fields are what (patched) SugarClock firmware reads today. Stock
-firmware ignores everything else. The rest is ready for the next firmware round.
+The first fields follow SugarClock's custom-URL format, so stock SugarClock
+firmware can show the glucose too. The Pumpkin firmware uses all of them.
 
 ## Fields
 
@@ -38,18 +42,58 @@ firmware ignores everything else. The rest is ready for the next firmware round.
 | `iob` | pump Active Insulin (U); `null` if pump data is older than `PUMP_MAX_AGE_MIN` |
 | `next_poll_sec` | when the next reading should be on CareLink (+ margin) |
 | `source` | `carelink` or `nightscout` |
-| `alert` | highest-priority active pump alert as short Dutch text, `""` if none |
+| `alert` | highest-priority active pump alert as short text (`LANG`), `""` if none |
 | `alerts[]` | all active pump alerts, priority order; glucose alerts and info messages left out |
-| `warnings` | what the clock's pump alerts screen shows, in order: `suspended`, `warning`, `battery`, `reservoir`, `bg`, `sensor`, `set` (see ../docs/DATA-SCHEMA.md) |
-| `temp_target`, `temp_target_min` | tijdelijke streefwaarde active + minutes left |
+| `warnings` | what the clock's pump alerts screen shows, in order: `suspended`, `warning`, `battery`, `reservoir`, `bg`, `sensor`, `set` |
+| `temp_target`, `temp_target_min` | temp target active + minutes left |
 | `sensor_hours_left`, `reservoir_units`, `pump_battery`, `phone_battery` | as reported; `null` if unknown or old |
-| `bridge_alert` | `CARELINK LOGIN NODIG` (token rejected → redo the login) or `CARELINK STORING` (3+ failures in a row) |
+| `bridge_alert` | `CARELINK LOGIN NEEDED` (token rejected → redo the login) or `CARELINK ERROR` (3+ failures in a row); Dutch with `LANG = "nl"` |
 
-Alert priority: toediening gestopt › set aansluiten › batterij vervangen ›
-reservoir leeg › sensor vervangen › set vervangen › reservoir bijna leeg ›
-batterij bijna leeg › zender opladen › geen sensorsignaal › BG meten ›
-kalibreren › maaltijdbolus › telefoon batterij › other (raw text). Alert texts
-come from xDrip+'s TextMap (GPL-3.0).
+Alert priority: delivery stopped › connect set › replace battery › reservoir
+empty › replace sensor › change set › reservoir low › battery low › charge
+transmitter › no sensor signal › check BG › calibrate › meal bolus › phone
+battery › other (raw text).
+
+## Configuration
+
+Everything lives in `wrangler.toml` (copy `wrangler.toml.example`; it is not
+committed) plus a few secrets.
+
+| setting | kind | |
+|---|---|---|
+| `CLOCK_TOKEN` | secret, required | shared with the clock's token field |
+| `CARELINK` | KV binding, required | tokens, account config, snapshot, status |
+| `CARELINK_COUNTRY` | var | country of the CareLink account, picks the region (default `BE`) |
+| `CARELINK_USERNAME`, `CARELINK_PATIENT_USERNAME` | var, optional | only when the automatic lookup fails |
+| `LANG` | var | `en` or `nl`: short alert texts in `/clock` and Nightscout |
+| `TARGET_LOW`, `TARGET_HIGH` | var | time-in-range limits (mg/dL) |
+| `NS_URL` | var, optional | Nightscout address; empty = CareLink only |
+| `NS_TOKEN` | secret, optional | Nightscout read token, for the fallback |
+| `NS_API_SECRET` or `NS_UPLOAD_TOKEN` | secret, optional | write access for the upload |
+| `NS_UPLOAD` | var | `true` uploads to Nightscout (with `NS_URL` and a write secret) |
+| `CARELINK_ENABLED` | var | `false` = Nightscout only |
+
+The rest (`CARELINK_LAG_SEC`, `PUMP_MAX_AGE_MIN`, `STALE_MAX_MIN`, `IOB_*`,
+`POLL_MARGIN_SEC`, `RAW_CAPTURE`) is explained in `wrangler.toml.example`.
+
+## CareLink login
+
+The bridge needs a CareLink **care-partner** account linked to the patient, used
+by nothing else. Two clients on one CareLink login log each other out.
+
+```bash
+npm install
+npm run login
+```
+
+This opens Google Chrome on the CareLink login page. Log in and solve the
+captcha; the tool catches the login, fetches the tokens and stores them in the
+Worker's KV with Wrangler. Options: `--country NL` (default `BE`), `--us`,
+`--out tokens.json` (write a file instead of storing it in KV).
+
+The refresh token rotates and the bridge keeps it alive. If nothing refreshes it
+for about a week (Worker off), CareLink drops the session: `/clock` reports
+`CARELINK LOGIN NEEDED` and you run `npm run login` again.
 
 ## How it works
 
@@ -58,122 +102,52 @@ come from xDrip+'s TextMap (GPL-3.0).
   so KV propagation adds no delay. If the reading is late, it retries after 20 s,
   50 s, 110 s and then every ~5 min. Otherwise it refetches only after 15 min.
 - **Cron `*/30`** keeps the refresh token alive when the clock is off.
-- **Tokens.** The refresh token rotates. The new one is written to KV before
-  anything else happens. If no refresh happens for about a week, CareLink drops
-  the session and you redo the login.
+- **Tokens.** The new refresh token is written to KV before anything else happens.
 - **Backoff.** Failures back off 1 → 2 → 4 … 30 min; a rejected login waits
-  60 min. Meanwhile `/clock` serves Nightscout.
+  60 min. Meanwhile `/clock` serves Nightscout, if there is one.
 - **KV budget.** The snapshot is written only when something changed (~300 writes
-  per day), plus token refreshes (~30). The free plan allows 1,000. The upload
-  needs no KV beyond one key written once.
-- **Nightscout upload.** Runs after each CareLink fetch, in the background, so
-  the clock never waits for it. It asks Nightscout what it already has and only
-  posts what's missing:
-  - `entries`: readings newer than Nightscout's newest. This also fills a gap
-    after an outage, up to 24h.
-  - `devicestatus`: `pump.iob`, `pump.reservoir`, `pump.battery` and
-    `pump.status`, in the format Nightscout's IOB and pump plugins read, so its
-    IOB becomes the pump's own value. A `carelink` block adds alerts, the temp
-    target, sensor and phone.
-  - `treatments`:
-    - auto-corrections become `Correction Bolus`;
-    - a bolus with carbs becomes `Meal Bolus`;
-    - carbs alone become `Carb Correction`;
-    - finger BGs become `BG Check`;
-    - the tijdelijke streefwaarde becomes `Temporary Target` (150 mg/dL, with a
-      cancel when it stops early).
-
-  Everything is posted as device and enteredBy `sugarclock-bridge`. There is no
-  history backfill: treatments start at the first upload. A Nightscout failure
-  never touches `/clock`; it shows in `/debug` under
-  `carelink.nightscout_upload`, and the next poll retries.
+  per day), plus token refreshes (~30). The free plan allows 1,000.
 - **Fails loud.** No fresh reading anywhere → 503 (stale) or 502 (unreachable).
   The clock never shows a guess.
-- **Nightscout fallback** works as before: slope trend, adaptive polling from the
-  ObjectId upload lag, and IOB only with `IOB_ENABLED = "true"`.
+- **Nightscout upload** (when enabled) runs after each CareLink fetch, in the
+  background, so the clock never waits for it. It asks Nightscout what it already
+  has and only posts what's missing:
+  - `entries`: readings newer than Nightscout's newest, filling gaps up to 24h;
+  - `devicestatus`: `pump.iob`, `pump.reservoir`, `pump.battery`, `pump.status`
+    in the format Nightscout's IOB and pump plugins read, plus a `carelink`
+    block with alerts, temp target, sensor and phone;
+  - `treatments`: auto-corrections (`Correction Bolus`), boluses with carbs
+    (`Meal Bolus`), carbs alone (`Carb Correction`), finger BGs (`BG Check`) and
+    the temp target (`Temporary Target`, 150 mg/dL, cancelled when it stops early).
 
-## Setup: CareLink + Nightscout upload
-
-Step-by-step version with checks and troubleshooting: **../docs/INSTALL.md**. Data structures: **../docs/DATA-SCHEMA.md**.
-
-Use ns10be's dedicated care-partner account. Two clients on one CareLink login
-break each other, so the switchover goes in this order:
-
-1. **KV namespace**
-   ```bash
-   npx wrangler kv namespace create CARELINK
-   ```
-   Paste the printed `id` into `wrangler.toml` in place of `REPLACE_WITH_KV_NAMESPACE_ID`.
-
-2. **Nightscout secret.** Use ns10be's `API_SECRET`, from its settings:
-   ```bash
-   npx wrangler secret put NS_API_SECRET
-   ```
-   Instead, you can create a token with the `admin` role in Nightscout
-   (Admin tools → Subjects) and use `npx wrangler secret put NS_UPLOAD_TOKEN`.
-
-3. **Turn off ns10be's CareLink poller.** From here until step 6, Nightscout gets
-   no data. That's a few minutes; step 6 fills the gap in the readings.
-
-4. **One-time CareLink login** (needs a real browser because of the reCAPTCHA).
-   Use `carelink_carepartner_api_login.py` from
-   [carelink-python-client](https://github.com/ondrej1024/carelink-python-client),
-   log in with the dedicated account, and you get `logindata.json`.
-
-5. **Store the tokens, then delete the file**
-   ```bash
-   npx wrangler kv key put tokens --path logindata.json --binding CARELINK --remote
-   rm logindata.json
-   ```
-
-6. **Deploy and test**
-   ```bash
-   npm test
-   npx wrangler deploy
-   curl -X POST -H "Authorization: Bearer <CLOCK_TOKEN>" https://sugarclock-bridge.emve.workers.dev/carelink/poll
-   ```
-   Check these in the output:
-   - `carelink.error`: should be `null`.
-   - `carelink.snapshot.last`, `alerts` and `banners`: real values.
-   - `carelink.nightscout_upload`: `ok: true`, with entries and devicestatus
-     uploaded.
-   - `clock.source`: `carelink`.
-
-   Then check ns10be: new readings, and the IOB pill matches the pump.
-
-If the username lookup fails, set `CARELINK_USERNAME` (the care-partner login)
-and `CARELINK_PATIENT_USERNAME` (Emilie's CareLink username) in `wrangler.toml`.
-If the timestamps are an hour off, compare `carelink.snapshot.time_offset_h` in
-`/debug`.
-
-Switches:
-- `NS_UPLOAD = "false"` stops the upload; the clock keeps working.
-- `CARELINK_ENABLED = "false"` switches to Nightscout only (only useful with
-  ns10be's poller back on).
-
-## Setup: Worker basics
-
-```bash
-npm install
-npx wrangler login
-npx wrangler secret put NS_TOKEN      # Nightscout read token (follower-…)
-npx wrangler secret put CLOCK_TOKEN   # e.g. output of: openssl rand -hex 24
-npm test
-npx wrangler deploy
-```
+  Everything is posted as device and enteredBy `sugarclock-bridge` (the name from
+  the first versions, kept so existing data stays recognised). Treatments start
+  at the first upload; there is no backfill. A Nightscout failure never touches
+  `/clock`; it shows in `/debug` under `carelink.nightscout_upload`.
+- **Nightscout fallback:** slope trend, adaptive polling from the upload lag, and
+  Nightscout's IOB only with `IOB_ENABLED = "true"`.
 
 ## Routes
 
 - `GET /clock`: the JSON above (Bearer `CLOCK_TOKEN`)
-- `GET /debug`: everything behind it, including the raw CareLink snapshot summary, backoff status and poll decision
+- `GET /debug`: everything behind it, including the CareLink snapshot summary, backoff status and poll decision
 - `POST /carelink/poll`: force a CareLink fetch, returns the debug output
 - `POST /reminders/clear?id=set` (`sensor`, `battery`, `reservoir`, `bg`, `all`): mark a remembered pump reminder as done by hand. The clock's "Clear pump alerts" button calls it with `id=all`
 - `GET /health`: `{"ok":true}`, no auth
 
-## Clock settings
+## Development
 
-- Data source: Custom URL, `https://sugarclock-bridge.emve.workers.dev/clock`
-- Token field: the `CLOCK_TOKEN` value (sent as `Authorization: Bearer …`)
-- TIR screen, pet + TIR and adaptive polling need the patched firmware
-  (`sugarclock-full-firmware.patch`). Alerts, temp target and IOB on the display
-  come with the next firmware round.
+```bash
+npm install
+npm test            # node --test, no network
+npx wrangler dev    # local Worker
+npx wrangler deploy
+```
+
+## License
+
+GPL-3.0 (see `LICENSE`): the alert texts in `src/alert-texts.js` come from
+xDrip+'s TextMap, which is GPL-3.0. The CareLink client is written from the
+public behaviour of the CareLink care-partner API, with
+[carelink-python-client](https://github.com/ondrej1024/carelink-python-client)
+as reference.

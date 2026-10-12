@@ -28,8 +28,8 @@ int main() {
 
     // Names -> host labels
     assert(slug("Keuken") == "keuken");
-    assert(slug("Slaapkamer Emilie") == "slaapkamer-emilie");
-    assert(slug("Slaapkamer \xC3\x89milie") == "slaapkamer-emilie");      // É
+    assert(slug("Slaapkamer Elise") == "slaapkamer-elise");
+    assert(slug("Slaapkamer \xC3\x89lise") == "slaapkamer-elise");      // É
     assert(slug("Caf\xC3\xA9 & Co.") == "cafe-co");                       // é, punctuation collapses
     assert(slug("Stra\xC3\x9F" "e") == "strasse");                          // ß
     assert(slug("  --Living  room-- ") == "living-room");
@@ -42,7 +42,7 @@ int main() {
     assert(slug("a b", 3) == "a");                                         // never ends in '-'
 
     // What the web UI accepts
-    assert(clock_name_valid("Keuken") && clock_name_valid("Slaapkamer \xC3\x89milie"));
+    assert(clock_name_valid("Keuken") && clock_name_valid("Slaapkamer \xC3\x89lise"));
     assert(!clock_name_valid("") && !clock_name_valid("!!!") && !clock_name_valid(nullptr));
     assert(!clock_name_valid("bad\nname"));
     assert(clock_name_valid("12345678901234567890123456789012"));          // 32 bytes

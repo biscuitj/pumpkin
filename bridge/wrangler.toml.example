@@ -1,11 +1,13 @@
 # Copy to wrangler.toml and fill in the <…> values. wrangler.toml itself is not committed.
-name = "sugarclock-bridge"
+# The Worker's address becomes https://<name>.<your-account>.workers.dev
+name = "pumpkin-bridge"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
 
 # Secrets (not in this file):
-#   npx wrangler secret put NS_TOKEN       -> Nightscout read token (follower-…), used as fallback
 #   npx wrangler secret put CLOCK_TOKEN    -> long random string, also entered in the clock's token field
+# Only with Nightscout:
+#   npx wrangler secret put NS_TOKEN       -> Nightscout read token, used as fallback
 #   npx wrangler secret put NS_API_SECRET  -> Nightscout API_SECRET; enables the upload to Nightscout
 #                                            (or NS_UPLOAD_TOKEN: a Nightscout token with the admin role)
 
@@ -21,20 +23,24 @@ id = "<your KV namespace id>"
 crons = ["*/30 * * * *"]
 
 [vars]
-NS_URL = "https://<your-nightscout-site>"
+# Nightscout is optional. Leave NS_URL empty to run on CareLink only.
+NS_URL = ""
+
+# Language of the short alert texts (Nightscout status, older firmware): "en" or "nl"
+LANG = "en"
 
 # CareLink (pump data). Set CARELINK_ENABLED = "false" to run on Nightscout only.
 CARELINK_ENABLED = "true"
-CARELINK_COUNTRY = "BE"
+CARELINK_COUNTRY = "BE"       # country of the CareLink account (picks the region)
 CARELINK_LAG_SEC = "75"       # a new reading is usually in CareLink this long after sensor time
 PUMP_MAX_AGE_MIN = "15"       # pump extras (IOB, alerts, temp target …) older than this are left out
 # Optional overrides when auto-detection fails:
 # CARELINK_USERNAME = "care-partner-username"
 # CARELINK_PATIENT_USERNAME = "patient-username"
 
-# Upload CareLink data to Nightscout after each fetch (needs NS_API_SECRET or NS_UPLOAD_TOKEN).
-# Only enable once Nightscout's own CareLink poller is off.
-NS_UPLOAD = "true"
+# Upload CareLink data to Nightscout after each fetch (needs NS_URL and NS_API_SECRET or
+# NS_UPLOAD_TOKEN). Only enable once Nightscout's own CareLink poller is off.
+NS_UPLOAD = "false"
 # Debug only: also store the raw CareLink data in Nightscout (device "sugarclock-bridge-raw").
 # Contains personal data (names, serials). Leave off unless investigating a pump event.
 RAW_CAPTURE = "false"

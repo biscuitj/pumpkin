@@ -1,20 +1,21 @@
-// SugarClock bridge: one JSON endpoint for the clock, fed by CareLink (pump data,
+// Pumpkin bridge: one JSON endpoint for the clock, fed by CareLink (pump data,
 // polled by this Worker) with Nightscout as fallback for glucose and time in range.
-// After each CareLink fetch the data is also uploaded to Nightscout (see
-// nightscout-upload.js), so this Worker replaces Nightscout's own CareLink poller.
+// With Nightscout configured, each CareLink fetch is also uploaded there (see
+// nightscout-upload.js), so this Worker can replace Nightscout's own CareLink poller.
+// Without Nightscout it runs on CareLink alone.
 //
-//   GET  /clock          -> SugarClock custom-URL format + extra fields (see README)
+//   GET  /clock          -> clock JSON: SugarClock custom-URL format + extra fields (see README)
 //   GET  /debug          -> everything the bridge computed, for troubleshooting
 //   POST /carelink/poll  -> force a CareLink fetch now (testing)
 //   GET  /health         -> {"ok":true} (no auth)
 //
 // Authenticated routes require "Authorization: Bearer <CLOCK_TOKEN>", which is what
-// SugarClock sends from its token field. Any doubt about the data gives a non-200,
+// the clock sends from its token field. Any doubt about the data gives a non-200,
 // so the clock shows stale / no data instead of a value that might be wrong.
 
 import { cleanEntries, computeTrend, computeTir, extractIob, nextPollSec } from './logic.js';
 import { pollOnce, shouldFetch, nextDue, nextStatus } from './carelink.js';
-import { mapCareLinkTrend, tempTargetFrom, activeLatches, suspendState } from './carelink-data.js';
+import { mapCareLinkTrend, tempTargetFrom, activeLatches, suspendState, alertShort } from './carelink-data.js';
 import { uploadEnabled, uploadToNightscout } from './nightscout-upload.js';
 
 const MIN = 60 * 1000;
@@ -42,6 +43,7 @@ function config(env) {
     carelinkLagSec: num(env.CARELINK_LAG_SEC, 75),
     pumpMaxAgeMin: num(env.PUMP_MAX_AGE_MIN, 15),
     nsUpload: uploadEnabled(env),
+    lang: String(env.LANG || 'en').toLowerCase() === 'nl' ? 'nl' : 'en',
   };
 }
 
@@ -268,10 +270,10 @@ function pumpExtras(snapshot, cfg, now) {
   return {
     fresh: true,
     iob: iobFresh ? snapshot.iob.units : null,
-    alert: headline.length ? headline[0].short : '',
+    alert: headline.length ? alertShort(headline[0], cfg.lang) : '',
     warnings: clockWarnings(snapshot.alerts, activeLatches(snapshot.latches), suspendState(snapshot)),
     alerts: headline.map((a) => ({
-      short: a.short, text: a.text, category: a.category,
+      short: alertShort(a, cfg.lang), text: a.text, category: a.category,
       since: a.since ? Math.floor(a.since / 1000) : null, silenced: a.silenced,
     })),
     temp_target: tt.active,
@@ -283,10 +285,16 @@ function pumpExtras(snapshot, cfg, now) {
   };
 }
 
-function bridgeAlert(cl) {
+const BRIDGE_ALERTS = {
+  en: { login: 'CARELINK LOGIN NEEDED', failing: 'CARELINK ERROR' },
+  nl: { login: 'CARELINK LOGIN NODIG', failing: 'CARELINK STORING' },
+};
+
+function bridgeAlert(cl, lang) {
   if (!cl || !cl.enabled || !cl.status || !cl.status.failures) return '';
-  if (cl.status.auth_error) return 'CARELINK LOGIN NODIG';
-  return cl.status.failures >= 3 ? 'CARELINK STORING' : '';
+  const texts = BRIDGE_ALERTS[lang] || BRIDGE_ALERTS.en;
+  if (cl.status.auth_error) return texts.login;
+  return cl.status.failures >= 3 ? texts.failing : '';
 }
 
 function careLinkDebug(cl) {
@@ -387,7 +395,7 @@ export async function buildState(env, nowMs = Date.now(), opts = {}) {
     reservoir_units: extras.reservoir_units,
     pump_battery: extras.pump_battery,
     phone_battery: extras.phone_battery,
-    bridge_alert: bridgeAlert(cl),
+    bridge_alert: bridgeAlert(cl, cfg.lang),
   };
   const debug = {
     clock,

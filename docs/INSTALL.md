@@ -1,390 +1,373 @@
-# SugarClock bridge: installation
+# Installing Pumpkin
 
-This takes the Worker from Nightscout-only to being the only CareLink client,
-with Nightscout (ns10be) fed by the Worker.
+Pumpkin puts a Medtronic MiniMed 780G user's glucose on a small pixel clock:
+the value, trend, time in range, active insulin and pump alerts (battery,
+reservoir, set and sensor change, a stopped pump).
 
-**Time:** about 30 minutes. **Gap in Nightscout:** a few minutes, between steps 6
-and 9, and the readings are filled in afterwards.
-**The clock:** same URL. It does get a new token (step 2), which you enter once in
-its web interface.
+```
+780G pump ── MiniMed app (phone) ── CareLink ── Pumpkin bridge ── Pumpkin clock
+                                                (Cloudflare)    └─ Nightscout (optional)
+```
+
+You set up two things:
+
+1. **The bridge**, a small program on Cloudflare's free plan. It follows the
+   patient in CareLink as a care partner, every five minutes.
+2. **The clock**, an Ulanzi TC001 with the Pumpkin firmware. It asks the bridge
+   for the latest data.
+
+**Time:** about an hour the first time. You need a computer with a terminal
+(macOS, Linux or Windows) and you type a few commands; no programming.
+
+> Pumpkin is not a medical device and isn't made or endorsed by Medtronic. It
+> uses an unofficial CareLink interface that can change or stop working at any
+> time. Never base treatment decisions on the clock alone.
 
 ---
 
 ## What you need
 
-- The Mac with `~/Sites/pumpkin/bridge`, where you already ran `wrangler login`
-  and deployed. The secret `NS_TOKEN` is already set; `CLOCK_TOKEN` gets
-  replaced in step 2.
-- The login (email and password) of **ns10be's dedicated care-partner account**.
-  It must not have MFA turned on; the login script doesn't support it.
-- Access to the ns10be dashboard.
-- Google Chrome, which the login script drives (after a one-line change, step 5).
-- The clock on your Wi-Fi, so you can open its web interface.
-- A clone of the `pumpkin` repo in `~/Sites/pumpkin`.
+**Accounts**
+- **A CareLink care-partner account, used only by Pumpkin.** Create a new
+  care-partner account and link it to the patient, the same way you would add a
+  care partner for the CareLink Connect app. Don't reuse a login that's already in
+  the CareLink Connect app, Nightscout or anything else that reads CareLink: two
+  programs on one login keep logging each other out.
+- **A Cloudflare account** (free): <https://dash.cloudflare.com/sign-up>.
+- **Optional: Nightscout.** Pumpkin works without it. See
+  [Nightscout (optional)](#nightscout-optional).
 
-Use two terminal windows:
-- **Terminal A** for the Worker (steps 1–4 and 8–10). Step 2 sets
-  `$CLOCK_TOKEN` and `$BRIDGE` there, and the later `curl` commands use them.
-- **Terminal B** for the login script (steps 5 and 7).
+**On the computer**
+- [Node.js](https://nodejs.org) 20 or newer (`node --version`)
+- [Google Chrome](https://www.google.com/chrome/), used for the CareLink login
+- [Git](https://git-scm.com) and Python 3, for building the clock firmware
+- A terminal: Terminal on macOS, PowerShell on Windows
+
+**Hardware**
+- An Ulanzi TC001 pixel clock
+- A USB-C **data** cable (the one in the box is sometimes charge-only)
+- A 2.4 GHz Wi-Fi network for the clock (5 GHz-only networks don't work)
 
 ---
 
-## 1. Put the new code in place
+## 1. Get the code
 
 ```bash
-cd ~/Sites/pumpkin/bridge
-cp -n wrangler.toml.example wrangler.toml   # first time only; fill in the <…> values
+git clone https://github.com/biscuitj/pumpkin.git
+cd pumpkin/bridge
 npm install
-npm test
 ```
 
-`npm test` should end with `# pass 65` and `# fail 0`.
+`npm install` fetches the tools the bridge needs (Wrangler, Cloudflare's
+command-line tool, and the login helper). It doesn't download a browser.
 
-`unzip -o` overwrites the source files but leaves `node_modules` and anything
-else that isn't in the zip. If you had changed `wrangler.toml` yourself, redo
-those changes; the zip has a new version of it.
+Every command below runs from this `bridge` folder unless it says otherwise.
 
-## 2. New clock token
-
-Cloudflare secrets can't be read back, so make a new token. In terminal A:
+## 2. Connect Wrangler to Cloudflare
 
 ```bash
-cd ~/Sites/pumpkin/bridge
-export CLOCK_TOKEN=$(openssl rand -hex 24)
-export BRIDGE=https://sugarclock-bridge.emve.workers.dev
-echo "$CLOCK_TOKEN"
+npx wrangler login
 ```
 
-Store it somewhere safe right away (1Password or similar). Then give it to the
-Worker:
+A browser window asks you to allow Wrangler access to your Cloudflare account.
+Allow it. Check with `npx wrangler whoami`.
+
+## 3. Make your configuration
 
 ```bash
-echo -n "$CLOCK_TOKEN" | npx wrangler secret put CLOCK_TOKEN
+cp wrangler.toml.example wrangler.toml
 ```
 
-That takes effect **immediately** on the live Worker, so from now on the clock
-gets `401` and shows NO DATA. Update the clock straight away:
+On Windows PowerShell: `copy wrangler.toml.example wrangler.toml`.
 
-1. Open the clock's web interface: its IP address in your browser, the same page
-   where you set the Custom URL. The IP is in your router, or shown on the clock
-   at boot.
-2. Paste the new token in the **token** field. The URL stays
-   `https://sugarclock-bridge.emve.workers.dev/clock`.
-3. Save. The clock should show a value again within a minute.
+Open `wrangler.toml` in a text editor. For now, check these lines:
 
-Check it:
+| line | set it to |
+|---|---|
+| `name` | the bridge's name; it becomes part of its address. `pumpkin-bridge` is fine. |
+| `CARELINK_COUNTRY` | the country of the CareLink account, as a two-letter code (`BE`, `NL`, `DE`, `GB`, `US` …) |
+| `LANG` | `en` or `nl`: language of the short alert texts |
+| `TARGET_LOW`, `TARGET_HIGH` | the time-in-range limits in mg/dL. In mmol/L: multiply by 18 (3.9 → 70, 10.0 → 180). |
 
-```bash
-curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $CLOCK_TOKEN" $BRIDGE/clock
-curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer wrong" $BRIDGE/clock
-```
+Leave `NS_URL` empty unless you set up Nightscout later.
 
-The first should print `200` (or `503` if Nightscout happens to be stale); the
-second, `401`.
+## 4. Create the storage
 
-If terminal A gets closed later, set both variables again: `export CLOCK_TOKEN='…'`
-and `export BRIDGE=https://sugarclock-bridge.emve.workers.dev`.
-
-## 3. Create the KV namespace
-
-The Worker keeps its CareLink tokens and last snapshot here.
+The bridge keeps its CareLink login and the latest data in Cloudflare's key-value
+storage (KV).
 
 ```bash
 npx wrangler kv namespace create CARELINK
 ```
 
-The output ends with a block like this:
+The output ends with a block like:
 
 ```toml
 [[kv_namespaces]]
 binding = "CARELINK"
-id = "3f2a9c…"
+id = "3f2a9c0d…"
 ```
 
-If wrangler asks whether to add it to your config for you, answer **no**:
-`wrangler.toml` already has the block, and a second one would break the
-config. Open `wrangler.toml` and replace `REPLACE_WITH_KV_NAMESPACE_ID` with
-that id:
+If Wrangler offers to add it to your configuration, answer **no**: the block
+is already in `wrangler.toml`, and a second copy breaks the file. Copy the `id`
+value into `wrangler.toml`, in place of `<your KV namespace id>`.
 
-```toml
-[[kv_namespaces]]
-binding = "CARELINK"
-id = "3f2a9c…"
-```
-
-## 4. Give the Worker write access to Nightscout
-
-The Worker needs one of these two. **Option A** is simplest.
-
-**A. The API secret.** ns10be calls it **API password** (server settings). It's
-Nightscout's `API_SECRET`.
-
-Check it first. This sends only its SHA-1 hash, just as the Worker will:
+## 5. Log in to CareLink
 
 ```bash
-NS_PW='paste-the-api-password'
-curl -s -H "api-secret: $(printf %s "$NS_PW" | shasum | cut -d' ' -f1)" \
-  https://filipverheyen.10be.de/api/v1/verifyauth
+npm run login
 ```
 
-You want `"canWrite":true` and `"isAdmin":true`. If you get
-`"message":"UNAUTHORIZED"`, the password is wrong, or ns10be uses something
-else; then use option B.
+If the CareLink account isn't Belgian, add the country:
+`npm run login -- --country NL`. For a US account: `npm run login -- --us`.
+
+1. Chrome opens on the CareLink login page, in a separate window.
+2. Log in with the **care-partner account** from *What you need*, not the
+   patient's own account.
+3. Solve the captcha.
+4. The window closes by itself. The terminal says `Storing the tokens in the
+   Worker…` and ends with `Done.`
+
+The login is stored in the bridge's storage; nothing is left on your computer.
+You only do this once: the bridge keeps the login alive. You'd only repeat it
+after the bridge was off for more than a week, or when CareLink asks for a new
+login.
+
+If it fails, see [Troubleshooting](#troubleshooting).
+
+## 6. Make the clock token
+
+The clock proves itself to the bridge with a long random password, the *clock
+token*. Make one:
 
 ```bash
-printf %s "$NS_PW" | npx wrangler secret put NS_API_SECRET
-unset NS_PW
+openssl rand -hex 24
 ```
 
-The Worker never sends the secret itself. It sends a SHA-1 hash in the
-`api-secret` header, which is the standard Nightscout method.
+No `openssl` on Windows? Use
+`node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`.
 
-**B. An admin token**, if you'd rather not hand over the API secret:
-1. Open `https://filipverheyen.10be.de`, then the menu (☰) → **Admin Tools**.
-2. Under **Subjects**, choose **Add new Subject**. Name it `sugarclock-bridge`,
-   give it the role `admin`, and save.
-3. Copy the access token it shows (`sugarclock-bridge-…`).
-4. Then:
-   ```bash
-   npx wrangler secret put NS_UPLOAD_TOKEN
-   # paste the token, Enter
-   ```
-
-The existing `NS_TOKEN` (follower) stays as it is. It's read-only and only
-used for the fallback.
-
-## 5. Prepare the CareLink login script
-
-Do this before you turn anything off, so the gap in step 6 stays short. In
-**terminal B**:
+Keep the token in your password manager; you'll enter it in the clock in step 9.
+Then give it to the bridge:
 
 ```bash
-cd ~/Sites
-git clone https://github.com/ondrej1024/carelink-python-client.git
-cd carelink-python-client
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+npx wrangler secret put CLOCK_TOKEN
 ```
 
-The virtual environment (`.venv`) avoids the "externally-managed-environment"
-error you got earlier.
+Paste the token when asked and press Enter. (On a brand-new Cloudflare
+account Wrangler may first ask to create the Worker; answer yes.)
 
-If `pip install` fails on a dependency (selenium-wire doesn't like the newest
-Python), use Python 3.12:
-
-```bash
-brew install python@3.12
-rm -rf .venv
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-**Switch the script from Firefox to Chrome.** It's one line, and the rest of
-the script (selenium-wire, which reads the login redirect) works with Chrome too:
+## 7. Deploy the bridge
 
 ```bash
-sed -i '' 's/webdriver.Firefox()/webdriver.Chrome()/' carelink_carepartner_api_login.py
-grep -n "webdriver\." carelink_carepartner_api_login.py
-# expect: driver = webdriver.Chrome()
-```
-
-The script still prints "opening Firefox instance…". That's only text; ignore
-it.
-
-On first run Selenium fetches a matching chromedriver itself, so it needs
-internet. You don't need to install anything else.
-
-Leave terminal B open, with `.venv` active.
-
-## 6. Turn off ns10be's CareLink poller
-
-In the ns10be dashboard, go to your server's plugins and **turn off the Medtronic
-MMConnect plugin**: the one you set up with the dedicated account, on the same
-page as `#mmconnect16715`. Save, and restart the server if ns10be asks you to.
-
-From here on Nightscout gets no new readings until step 9.
-
-Why it has to go: ns10be and the Worker would otherwise be two clients on one
-CareLink login. That's the situation that broke things before, and the reason
-ns10be got its own account.
-
-## 7. Log in to CareLink once
-
-In **terminal B** (`~/Sites/carelink-python-client`, `.venv` active):
-
-```bash
-python3 carelink_carepartner_api_login.py
-```
-
-1. A separate Chrome window opens on the CareLink login page. It's a clean,
-   temporary profile, so your normal Chrome can stay open. The window says it's
-   controlled by automated test software.
-2. Log in with **ns10be's dedicated care-partner account**, not your own, and
-   not Emilie's.
-3. Solve the reCAPTCHA.
-4. Wait. The script picks up the result itself, the window closes, and the
-   script writes `logindata.json` to the current folder.
-
-If Chrome shows "Your connection is not private" (selenium-wire intercepts
-HTTPS with its own certificate), click anywhere on that page and type
-`thisisunsafe`. That's Chrome's built-in bypass, and it only applies to this
-temporary window.
-
-If the window doesn't open or the script crashes with Chrome, the fallback is
-Firefox: `brew install --cask firefox`, reverse the `sed` (swap Chrome and
-Firefox), and run it again.
-
-Check the result:
-
-```bash
-ls -l logindata.json
-python3 -c "import json; print(sorted(json.load(open('logindata.json')).keys()))"
-```
-
-You should see at least `access_token`, `client_id` and `refresh_token`. The
-EU login also adds `scope`; the older flow adds `client_secret` and
-`mag-identifier`. Either version works.
-
-**Don't run the Python client itself afterwards.** As soon as anything
-refreshes the token, the copy in `logindata.json` is no longer valid.
-
-## 8. Store the tokens in KV, then delete the file
-
-In **terminal A** (the project folder, so wrangler uses the right `wrangler.toml`):
-
-```bash
-cd ~/Sites/pumpkin/bridge
-npx wrangler kv key put tokens \
-  --path ~/Sites/carelink-python-client/logindata.json \
-  --binding CARELINK --remote
-```
-
-Check that the value arrived:
-
-```bash
-npx wrangler kv key list --binding CARELINK --remote
-```
-
-The list should show `tokens`. Then delete the file; it gives access to
-Emilie's data:
-
-```bash
-rm ~/Sites/carelink-python-client/logindata.json
-```
-
-## 9. Deploy and test
-
-```bash
-cd ~/Sites/pumpkin/bridge
 npx wrangler deploy
 ```
 
-The output should list the `CARELINK` KV binding and `schedule: */30 * * * *`.
+The first time, Wrangler may ask you to pick a `workers.dev` subdomain for your
+account; any free name works. At the end it prints the bridge's address, for
+example:
 
-**Force a first CareLink fetch:**
-
-```bash
-curl -s -X POST -H "Authorization: Bearer $CLOCK_TOKEN" $BRIDGE/carelink/poll | python3 -m json.tool
+```
+https://pumpkin-bridge.your-subdomain.workers.dev
 ```
 
-Check these in the output:
+That's your **bridge address**. The output should also list the `CARELINK` KV
+binding and the schedule `*/30 * * * *`.
 
-| field | should be |
+## 8. Check the bridge
+
+Put the address and token in two variables (macOS / Linux):
+
+```bash
+export BRIDGE=https://pumpkin-bridge.your-subdomain.workers.dev
+export CLOCK_TOKEN=paste-the-token
+```
+
+On Windows PowerShell: `$env:BRIDGE="https://…"` and `$env:CLOCK_TOKEN="…"`,
+and write `$env:BRIDGE` / `$env:CLOCK_TOKEN` in the commands below.
+
+Force a first CareLink fetch:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $CLOCK_TOKEN" $BRIDGE/carelink/poll
+```
+
+The answer is a long JSON text. Look for:
+
+| in the answer | should be |
 |---|---|
-| `carelink.error` | `null` |
-| `carelink.status` | `null` or `failures: 0` |
-| `carelink.snapshot.last` | Emilie's current value and time |
-| `carelink.snapshot.time_offset_h` | `0` (or a whole number; see troubleshooting) |
-| `carelink.snapshot.iob` | the active insulin her pump shows |
-| `carelink.snapshot.alerts` / `banners` | what the pump shows right now (often empty) |
-| `carelink.nightscout_upload.ok` | `true`, with `entries` > 0 and `devicestatus: true` |
-| `clock.source` | `carelink` |
+| `"error"` under `carelink` | `null` |
+| `"last"` under `snapshot` | the current glucose and time |
+| `"iob"` | the active insulin the pump shows |
+| `"source"` under `clock` | `"carelink"` |
 
-**What the clock gets:**
+Then what the clock will get:
 
 ```bash
-curl -s -H "Authorization: Bearer $CLOCK_TOKEN" $BRIDGE/clock | python3 -m json.tool
+curl -s -H "Authorization: Bearer $CLOCK_TOKEN" $BRIDGE/clock
 ```
 
-**Check Nightscout:**
+You should see the glucose, trend and time in range. Time in range can be `-1`
+for the first day, until the bridge has seen enough readings.
+
+## 9. Install the firmware on the clock
+
+This uses PlatformIO, the tool that builds and flashes the firmware. From the
+`pumpkin` folder:
 
 ```bash
-NS=https://filipverheyen.10be.de
-NSTOKEN='follower-…'   # your NS_TOKEN
-curl -s "$NS/api/v1/entries/sgv.json?count=3&token=$NSTOKEN" | python3 -m json.tool      # device: sugarclock-bridge
-curl -s "$NS/api/v1/devicestatus.json?count=1&token=$NSTOKEN" | python3 -m json.tool     # pump.iob, reservoir, battery
-curl -s "$NS/api/v2/properties/iob?token=$NSTOKEN" | python3 -m json.tool               # iob = pump value
+cd ../firmware
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements-build.txt
+pio run -t upload
 ```
 
-In the Nightscout website you should see:
-- the graph running up to now, with the gap from step 6 filled;
-- the IOB pill matching the pump;
-- a pump pill with reservoir and battery (enable `pump` under `SHOW_PLUGINS`
-  if it doesn't show);
-- after her next bolus, a treatment in the graph.
+The `.venv` folder keeps PlatformIO apart from the rest of your system. In a new
+terminal, run the `activate` line again before using `pio`.
 
-**Watch it live for a while:**
+Connect the clock with the USB-C cable first, directly to the computer (not
+through a hub). The first build downloads the ESP32 toolchain and takes a few
+minutes. If the upload can't find the clock or times out:
 
-```bash
-npx wrangler tail
-```
+- Windows: install the [CH340 driver](https://sparks.gogo.co.nz/ch340.html).
+- Hold the clock's **middle button** while plugging in the cable, release it
+  after a second, and run `pio run -t upload` again.
 
-Every 5 minutes or so you'll see a `/clock` request, and right after a new
-reading appears in CareLink, a fetch followed by an upload.
+Want to keep the original Ulanzi firmware? Back it up first; see
+[`firmware/INSTALL.md`](../firmware/INSTALL.md), step 1.
 
-## 10. Check again after an hour
+After the upload the clock restarts, shows a pumpkin and then its setup
+network name.
 
-- `/debug` → `carelink.status` should still be `null` or `failures: 0`.
-- No double points in the Nightscout graph.
-- Boluses and carbs appear correctly in Nightscout. This is the least-tested
-  part: CareLink has used two record layouts, and I handle both. If something's
-  missing, send me the `/debug` output.
+## 10. Connect the clock to Wi-Fi
+
+1. On a phone or laptop, join the open network `Pumpkin-Setup-XXXX` that the
+   clock shows.
+2. If a login window pops up, use it to open a normal browser, and go to
+   `http://192.168.4.1`.
+3. On the **Wi-Fi** tab, choose your 2.4 GHz network, enter the password and
+   choose **Join this network**.
+4. The clock tests the network before saving it, then scrolls its new address,
+   for example `pumpkin-a1b2.local` or an IP address like `192.168.0.12`.
+
+School or company Wi-Fi with a username (WPA2-Enterprise) works too; see
+[`firmware/INSTALL.md`](../firmware/INSTALL.md), *School and WPA2-Enterprise
+WiFi*.
+
+## 11. Point the clock at the bridge
+
+Back on your normal network, open the clock's address in a browser
+(`http://pumpkin-a1b2.local`, or the IP address). Forgot it? Double-press the
+clock's middle button.
+
+On the **Blood Sugar** tab:
+
+| field | value |
+|---|---|
+| Data Source | **Custom URL** |
+| Server URL | your bridge address + `/clock`, e.g. `https://pumpkin-bridge.your-subdomain.workers.dev/clock` |
+| Auth Token | the clock token from step 6 |
+
+Choose **Save Configuration**. Within a minute the clock shows the glucose.
+
+Then, while you're there:
+- **Clocks** tab: give the clock a name (its address becomes `name.local`) and,
+  if you like, a password for this web page (user `pumpkin`).
+- **Display** tab: night mode, brightness. *Full Mute* turns the screen and
+  sound off completely during the night hours, for example at school after
+  hours.
+- **Blood Sugar** tab: glucose thresholds and colours.
+
+A second clock? Do steps 9 and 10 for it, then on the first clock's **Clocks**
+tab tick the new one under *Copy Settings to Other Clocks*, include the data
+source, and copy.
 
 ---
 
 ## Day to day
 
-**`bridge_alert: "CARELINK LOGIN NODIG"`** in `/clock`: CareLink rejected the
-token, most likely because no refresh happened for more than a week. Redo
-**steps 7 and 8**, then run the forced fetch from step 9. You don't need to
-deploy again.
+- **Updating the clock:** build with `pio run` in `firmware/` and upload
+  `firmware/.pio/build/esp32dev/firmware.bin` in the clock's web page
+  (**Device → Update firmware**). Settings stay. If the new version doesn't start
+  properly, the clock goes back to the previous one by itself.
+- **Updating the bridge:** `git pull`, then in `bridge/`: `npm install` and
+  `npx wrangler deploy`. Your `wrangler.toml` is never overwritten by `git pull`.
+- **`CARELINK LOGIN NEEDED`** in `/clock` (`bridge_alert`): CareLink rejected the
+  login, usually because the bridge was off for over a week, or the care-partner
+  password changed. Run `npm run login` again; no deploy needed.
+- **`CARELINK ERROR`**: three or more failed fetches in a row, usually CareLink
+  itself. The bridge retries on its own (after 1, 2, 4 … up to 30 minutes).
+- **The clock shows no data or stale data:** check the MiniMed app on the phone
+  first. If that's current, look at the bridge:
+  `curl -s -H "Authorization: Bearer $CLOCK_TOKEN" $BRIDGE/debug`.
 
-**`bridge_alert: "CARELINK STORING"`**: at least 3 failed fetches in a row,
-usually CareLink itself. The Worker backs off (1, 2, 4 … 30 min) and recovers on
-its own. Meanwhile the clock serves Nightscout, which isn't getting new data
-either, so after 30 minutes the clock shows stale.
+Cloudflare's free plan is plenty: one clock uses about 300 requests and 330
+storage writes a day; the limits are 100,000 and 1,000.
 
-**Pausing the upload:** set `NS_UPLOAD = "false"` in `wrangler.toml` and deploy.
-The clock keeps working.
+## Nightscout (optional)
 
-**Going back to the old setup:**
-1. Set `CARELINK_ENABLED = "false"` and `NS_UPLOAD = "false"` in `wrangler.toml`.
-2. Deploy.
-3. Turn ns10be's MMConnect plugin back on.
+With Nightscout, the bridge can do two more things:
 
-If you leave the Worker unused for a week, its token expires and you'll have to
-log in again to switch back.
+- **Fallback:** when CareLink is down, the clock gets its glucose from Nightscout.
+- **Upload:** the bridge sends readings, pump IOB, reservoir, battery, boluses,
+  carbs and temp targets to Nightscout. It then replaces Nightscout's own
+  CareLink connection.
+
+In `wrangler.toml`:
+
+```toml
+NS_URL = "https://your-nightscout.example.com"
+NS_UPLOAD = "true"      # only for the upload
+```
+
+Secrets:
+
+```bash
+npx wrangler secret put NS_TOKEN        # a read token from Nightscout (Admin Tools → Subjects, role "readable")
+npx wrangler secret put NS_API_SECRET   # only for the upload: Nightscout's API_SECRET
+```
+
+Instead of the API secret you can use a token with the `admin` role:
+`npx wrangler secret put NS_UPLOAD_TOKEN`. Then `npx wrangler deploy`.
+
+**Before you turn the upload on, turn off Nightscout's own CareLink
+connection** (the MiniMed / CareLink "connect" plugin). Otherwise Nightscout
+gets everything twice, and if it uses the same CareLink login the two log each
+other out.
+
+Check after the next reading:
+`curl -s -X POST -H "Authorization: Bearer $CLOCK_TOKEN" $BRIDGE/carelink/poll`
+should show `"nightscout_upload"` with `"ok": true`.
 
 ## Troubleshooting
 
-| `carelink.error` / symptom | cause | fix |
+| symptom | cause | fix |
 |---|---|---|
-| `no CareLink tokens in KV` | step 8 missing or written to the wrong namespace | `kv key list --binding CARELINK --remote`; redo step 8 from the project folder |
-| `token refresh rejected (HTTP 4xx)` | refresh token used elsewhere, or older than a week | steps 7 and 8 again; make sure nothing else uses `logindata.json` |
-| `no linked patient found` | the care-partner account can't see Emilie, or the name lookup fails | check the link in the CareLink app; or set `CARELINK_PATIENT_USERNAME` (her CareLink username) and `CARELINK_USERNAME` (the care-partner login) in `wrangler.toml` and deploy |
-| `display/message -> HTTP 4xx/5xx` | CareLink API changed or is down | send me the `/debug` output |
-| times an hour off (`time_offset_h` ≠ 0, reading looks 1–2 h old) | pump-local time without a zone | send me `/debug`; the offset correction may need a tweak |
-| `nightscout_upload.error: … HTTP 401` | wrong `NS_API_SECRET`, or the token lacks the `admin` role | `npx wrangler secret put NS_API_SECRET` again (watch out for trailing spaces) |
-| clock shows NO DATA, log shows HTTP 401 | the clock still has the old token, or a typo / trailing space | paste `$CLOCK_TOKEN` into the clock's token field again; test with the `curl` from step 2 |
-| upload `ok` but nothing in Nightscout | Nightscout cache | refresh the site; check with the `curl` commands from step 9 |
-| clock shows stale | no new reading anywhere for 30+ min | check the CareLink app on your phone; if that's current, look at `/debug` |
+| `npm run login`: `could not start Google Chrome` | Chrome isn't installed, or a hanging Chrome | install Chrome; close all Chrome windows and try again |
+| `npm run login`: the window stays on the login page | wrong account, or a step CareLink added (e.g. accepting new terms) | finish whatever the page asks; log in with the care-partner account |
+| `npm run login`: `wrangler could not store the tokens` | not logged in to Cloudflare, or not run in `bridge/` | `npx wrangler whoami`; `cd bridge`; check the KV `id` in `wrangler.toml` |
+| `npm run login`: `non-Auth0 login` | CareLink uses another login system in that region | not supported yet |
+| `/carelink/poll`: `no CareLink tokens in KV` | the login wasn't stored, or the KV `id` changed | run `npm run login` again |
+| `/carelink/poll`: `token refresh rejected` | the login is used elsewhere too, or older than a week | make sure only Pumpkin uses this care-partner login; `npm run login` |
+| `/carelink/poll`: `no linked patient found` | the care-partner account isn't linked to the patient | check the link in CareLink; if it is linked, set `CARELINK_USERNAME` (care-partner login) and `CARELINK_PATIENT_USERNAME` (the patient's CareLink username) in `wrangler.toml` and deploy |
+| `/clock` answers `401` | wrong token, or a space pasted along | `npx wrangler secret put CLOCK_TOKEN` again and enter the same value in the clock |
+| times an hour or two off | the pump's clock or time zone | check the pump's time; send the `/debug` output to whoever helps you |
+| clock: `NO WIFI` | wrong password, or a 5 GHz-only network | the setup network comes back after about two minutes; join it and choose the network again |
+| clock: `NO DATA` | wrong Server URL or token | check both on the Blood Sugar tab; test with the `curl` from step 8 |
+| forgot the clock's web password | | only a USB reset clears it: in `firmware/`, `pio run -t erase` then `pio run -t upload`, and set the clock up again |
 
-## Free-plan limits
+More on the clock (buttons, screens, recovery):
+[`firmware/INSTALL.md`](../firmware/INSTALL.md). More on the bridge:
+[`bridge/README.md`](../bridge/README.md).
 
-- **Requests:** ~300 `/clock` calls plus 48 cron runs a day, against 100,000
-  allowed.
-- **KV writes:** ~300 snapshots plus ~30 token refreshes a day, against 1,000
-  allowed.
-- **Nightscout:** at most 4 lookups and 3 posts per new reading.
+## Coming from an earlier Pumpkin version
+
+- **Bridge from before 0.9:** run `npm install` once (it adds the new login
+  tool) and deploy. The old login with carelink-python-client is no longer
+  needed; next time a login is due, use `npm run login`. Add `LANG = "nl"` to
+  `wrangler.toml` to keep the Dutch alert texts (the default is now English).
+  Your Worker keeps its name and address; nothing changes on the clock.
+- **Clock on SugarClock or Pumpkin 0.7 and older:** flash once over USB
+  (step 9) **without erasing**; settings stay. From 0.8 on, updates go through
+  the web page.

@@ -49,7 +49,7 @@ Keep `tc001_factory_backup.bin` somewhere safe.
 Clone or download this project, then build:
 
 ```bash
-cd tc001
+cd firmware
 
 # Install PlatformIO if needed
 pip install -r requirements-build.txt
@@ -65,7 +65,7 @@ Flash: [======    ]  XX.X% (used XXXXXXX bytes from 2097152 bytes)
 ========================= [SUCCESS] Took X seconds =========================
 ```
 
-Build the web UI filesystem image:
+Optional, only if you use the LittleFS image (see Step 4):
 ```bash
 pio run --target buildfs
 ```
@@ -102,10 +102,10 @@ If the upload fails with a connection error:
 ### Option A: PlatformIO (Recommended)
 
 ```bash
-# Upload firmware
+# Upload firmware (the web UI is built into it)
 pio run --target upload
 
-# Upload web UI filesystem
+# Optional: the LittleFS image (extra files such as certificates; not needed normally)
 pio run --target uploadfs
 ```
 
@@ -150,7 +150,7 @@ pio device monitor
 You should see:
 ```
 ================================
-Pumpkin v0.8.0
+Pumpkin v0.9.0
 Reset reason: 1
 ================================
 [CONFIG] No valid config found, writing defaults
@@ -179,7 +179,7 @@ up. The display cycles the exact network name and `192.168.4.1`.
    select **Join this network**.
 5. The clock tests the credentials first and saves them only after the connection succeeds.
 6. Once it's on your network, the clock scrolls its address once, e.g.
-   `To connect, visit sugarclock-a1b2.local or 192.168.0.12`. Give it a name on the
+   `To connect, visit pumpkin-a1b2.local or 192.168.0.12`. Give it a name on the
    **Clocks** tab; the address follows the name (`keuken.local`).
 
 If saved WiFi cannot connect, the same setup network starts automatically after about two
@@ -214,12 +214,10 @@ network against it.
 School IT can copy this outbound allowlist (also allow normal DNS resolution):
 
 ```text
-TCP 443: share2.dexcom.com
-TCP 443: shareous1.dexcom.com
-TCP 443: api.openweathermap.org
+TCP 443: share2.dexcom.com, shareous1.dexcom.com (only with Dexcom Share as data source)
+TCP 443: api.openweathermap.org (only with the weather screen)
+TCP 443: the Pumpkin bridge (<name>.<account>.workers.dev)
 TCP 443: the configured Nightscout host (when used)
-TCP 443: github.com
-TCP 443: release-assets.githubusercontent.com
 UDP 123: pool.ntp.org
 UDP 123: time.nist.gov
 UDP 123: time.google.com
@@ -266,7 +264,8 @@ settings: `pio run --target erase`, then `pio run --target upload`, and set the 
 
 ### Required Configuration
 
-Navigate to the **Config** page and set:
+With the Pumpkin bridge, follow [`../docs/INSTALL.md`](../docs/INSTALL.md) (step *Point the clock
+at the bridge*). For any other server, on the **Blood Sugar** tab set:
 
 1. **Server URL** — Your glucose data endpoint (HTTPS supported)
 2. **Auth Token** — Bearer token for the server (if required)

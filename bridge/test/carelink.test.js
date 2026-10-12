@@ -111,9 +111,9 @@ test('first poll: discovery, identity, data; writes tokens? no, config and snaps
   assert.deepEqual(kv.puts.sort(), ['config', 'snapshot']);
   const config = JSON.parse(kv.store.get('config'));
   assert.equal(config.token_url, 'https://auth.example:443/oauth/token');
-  assert.deepEqual(config.identity, { role: 'CARE_PARTNER_OUS', care_partner: true, username: 'cp-user', patient: 'emilie' });
+  assert.deepEqual(config.identity, { role: 'CARE_PARTNER_OUS', care_partner: true, username: 'cp-user', patient: 'patient-a' });
   const msg = cl.calls.find((c) => c.url.pathname.endsWith('/display/message'));
-  assert.deepEqual(JSON.parse(msg.body), { username: 'cp-user', role: 'carepartner', appVersion: '3.8.0', patientId: 'emilie' });
+  assert.deepEqual(JSON.parse(msg.body), { username: 'cp-user', role: 'carepartner', appVersion: '3.8.0', patientId: 'patient-a' });
   assert.equal(msg.headers['mag-identifier'], 'mag-1');
   assert.match(msg.headers.Authorization, /^Bearer /);
 });
@@ -205,9 +205,9 @@ test('missing tokens is an auth error', async () => {
 test('env overrides skip identity lookups', async () => {
   const cl = fakeCareLink({ patients: [] });
   const kv = memoryKV({ tokens: TOKENS() });
-  await pollOnce({ CARELINK: kv, CARELINK_PATIENT_USERNAME: 'emilie-x', CARELINK_USERNAME: 'me' }, NOW, cl.handler);
+  await pollOnce({ CARELINK: kv, CARELINK_PATIENT_USERNAME: 'patient-x', CARELINK_USERNAME: 'me' }, NOW, cl.handler);
   const msg = cl.calls.find((c) => c.url.pathname.endsWith('/display/message'));
-  assert.deepEqual(JSON.parse(msg.body).patientId, 'emilie-x');
+  assert.deepEqual(JSON.parse(msg.body).patientId, 'patient-x');
   assert.equal(JSON.parse(msg.body).username, 'me');
 });
 

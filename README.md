@@ -5,14 +5,16 @@ room that shows the current value, trend, time in range, active insulin and
 pump alerts (battery, reservoir, set and sensor change, a stopped pump).
 
 - **`bridge/`**: Cloudflare Worker. The only CareLink client (care-partner
-  account). Serves the clock one JSON document and uploads the same data to
-  Nightscout.
+  account). Serves the clock one JSON document and, optionally, uploads the same
+  data to Nightscout.
 - **`firmware/`**: firmware for the Ulanzi TC001 (ESP32, 32×8 LEDs). Based on
   [SugarClock](https://github.com/cdemeke/SugarClock) 0.2.15 and branched off
   from there: no upstream updates are merged.
-- **`docs/`**: installation (`INSTALL.md`), data structures (`DATA-SCHEMA.md`),
+- **`docs/`**: installation (`INSTALL.md`, start here), data structures (`DATA-SCHEMA.md`),
   display spec (`CLOCK-DISPLAY-SPEC.md`).
 - **`CHANGELOG.md`**: one version for bridge and firmware together.
+
+**Installing:** [`docs/INSTALL.md`](docs/INSTALL.md).
 
 ## Working on it
 

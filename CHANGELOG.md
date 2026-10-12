@@ -1,7 +1,6 @@
 # Changelog
 
-All notable changes to Pumpkin: the bridge (Cloudflare Worker, still deployed as
-`sugarclock-bridge`) and the clock firmware (based on SugarClock 0.2.15).
+All notable changes to Pumpkin: the bridge (Cloudflare Worker) and the clock firmware (based on SugarClock 0.2.15).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/). It stays on major
@@ -16,6 +15,46 @@ How versions work:
   recorded here).
 
 ## [Unreleased]
+
+## [0.9.0] - 2026-10-12
+
+Pumpkin can be installed by other families: a new install guide without
+anything specific to one setup, a CareLink login that is one command, and a
+bridge that no longer needs Nightscout. The firmware itself is unchanged apart
+from the version; a clock on 0.8 doesn't need the update.
+
+### Added
+- Bridge: **`npm run login`**, a CareLink login in Node that replaces
+  carelink-python-client. It opens the installed Google Chrome (no browser
+  download, via `playwright-core`), catches the login, exchanges the code for
+  tokens and stores them in KV with Wrangler. It also resets the account config
+  and the error backoff, so the new login is used right away. Options:
+  `--country`, `--us`, `--out tokens.json`.
+- Bridge: **`LANG`** (`en` or `nl`) for the short alert texts in `/clock`
+  (`alert`, `alerts[].short`), the Nightscout device status and `bridge_alert`.
+- Bridge: `LICENSE` (GPL-3.0, because of the xDrip+ alert texts).
+- Docs: **`docs/INSTALL.md` rewritten for a new family**: accounts, deploying
+  the bridge, the login, flashing and setting up the clock, Nightscout as an
+  option, troubleshooting, and notes for existing installs.
+
+### Changed
+- Bridge: **runs without Nightscout.** Leave `NS_URL` empty and the bridge works
+  on CareLink alone; nothing calls Nightscout.
+- Bridge: the default language is **English**. `bridge_alert` is now
+  `CARELINK LOGIN NEEDED` / `CARELINK ERROR` (Dutch `… NODIG` / `… STORING` with
+  `LANG = "nl"`). Existing installs: add `LANG = "nl"` to keep the Dutch texts.
+- Bridge: `wrangler.toml.example` is generic: Worker name `pumpkin-bridge`,
+  Nightscout settings marked optional, `NS_UPLOAD = "false"` until you turn it on.
+  The code default for an existing `wrangler.toml` without `NS_UPLOAD` stays
+  "on", so running installs keep uploading.
+- Bridge: package renamed `pumpkin-bridge`, version 0.9.0, Node 20 or newer.
+  Deployed Workers keep their name; Nightscout data is still posted as device
+  `sugarclock-bridge`, so existing data stays recognised.
+- Bridge README, data schema and display spec: Pumpkin names, no personal
+  setup details.
+- Firmware: version 0.9.0. `firmware/INSTALL.md`: the LittleFS image is
+  optional (the web UI is built into the firmware), the school allowlist names
+  the bridge instead of GitHub, and the address example says `pumpkin-…`.
 
 ## [0.8.0] - 2026-10-12
 
@@ -65,7 +104,7 @@ Multiple clocks on one network. Firmware only; the Worker is unchanged.
   **Clocks** tab. The default name is `sugarclock-xxxx`, from the last four
   characters of the chip ID. The name shows in the web page title and sidebar.
 - Firmware: **`.local` address** via mDNS, derived from the name: "Slaapkamer
-  Émilie" becomes `slaapkamer-emilie.local`. Accents are folded and other
+  Élise" becomes `slaapkamer-elise.local`. Accents are folded and other
   characters become dashes. A name another device already answers for gets
   `-2`, `-3`, … A rename takes effect without a restart. The router's client list
   (DHCP hostname) shows the new name after the next restart.
@@ -220,7 +259,7 @@ Multiple clocks on one network. Firmware only; the Worker is unchanged.
     battery;
   - `treatments`: boluses, carbs, finger BGs and temp targets.
 
-  This replaces ns10be's own CareLink poller.
+  This replaces Nightscout's own CareLink poller.
 - Worker: Nightscout stays the fallback for glucose and time in range.
 - Docs: `INSTALL.md` (step-by-step setup) and `DATA-SCHEMA.md`.
 
@@ -252,6 +291,7 @@ Multiple clocks on one network. Firmware only; the Worker is unchanged.
 - Firmware: "Show Trend Screen" toggle (`trend_en`).
 
 [Unreleased]: #unreleased
+[0.9.0]: #090---2026-10-12
 [0.8.0]: #080---2026-10-12
 [0.7.0]: #070---2026-10-12
 [0.6.0]: #060---2026-10-12

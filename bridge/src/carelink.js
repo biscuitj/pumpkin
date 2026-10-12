@@ -13,9 +13,9 @@
 import { buildSnapshot, snapshotFingerprint, updateLatches, detectSetChange } from './carelink-data.js';
 
 const MIN = 60 * 1000;
-const DEFAULT_DISCOVERY_URL = 'https://clcloud.minimed.eu/connect/carepartner/v13/discover/android/3.8';
+export const DEFAULT_DISCOVERY_URL = 'https://clcloud.minimed.eu/connect/carepartner/v13/discover/android/3.8';
 const APP_VERSION = '3.8.0';
-const USER_AGENT = 'Dalvik/2.1.0 (Linux; U; Android 10; Nexus 5X Build/QQ3A.200805.001)';
+export const USER_AGENT = 'Dalvik/2.1.0 (Linux; U; Android 10; Nexus 5X Build/QQ3A.200805.001)';
 const TIMEOUT_MS = 10000;
 const CONFIG_TTL_MS = 24 * 60 * MIN;
 const REFRESH_BEFORE_MS = 10 * MIN;

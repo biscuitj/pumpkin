@@ -22,7 +22,7 @@ void clock_setup_ssid(const uint8_t mac[6], char* out, size_t out_size);
 
 // Display name -> host label: lowercase a-z0-9, common accented letters
 // folded (é -> e, ß -> ss), everything else becomes one '-', no leading or
-// trailing '-'. "Slaapkamer Émilie" -> "slaapkamer-emilie". False (out = "")
+// trailing '-'. "Slaapkamer Élise" -> "slaapkamer-elise". False (out = "")
 // when nothing usable is left.
 bool clock_name_slug(const char* name, char* out, size_t out_size);
 

@@ -1,13 +1,13 @@
-# SugarClock bridge: data structures
+# Pumpkin bridge: data structures
 
 ## Flow
 
 ```
-                 Medtronic 780G ──BLE──> MiniMed app (Emilie's phone) ──> CareLink cloud
+                 Medtronic 780G ──BLE──> MiniMed app (patient's phone)   ──> CareLink cloud
                                                                               │
                          POST {base_cumulus}/display/message (care partner)   │
                                                                               ▼
-┌──────────────────────────── Cloudflare Worker: sugarclock-bridge ─────────────────────────────┐
+┌────────────────────────────── Cloudflare Worker: Pumpkin bridge ──────────────────────────────┐
 │                                                                                                │
 │  patientData (raw, memory only)                                                                │
 │      │ buildSnapshot()                     treatmentsFromMarkers()                             │
@@ -22,7 +22,7 @@
 │  cron */30 (keepalive)│                         │                                              │
 └───────────────────────┼─────────────────────────┼──────────────────────────────────────────────┘
                         ▼                         ▼
-                 Ulanzi TC001 (SugarClock)   ns10be Nightscout ──> website, follower apps, watch app
+                 Ulanzi TC001 (Pumpkin)      Nightscout (optional) ──> website, follower apps
                         ▲                         │
                         └── fallback: GET /api/v1/entries/sgv.json (only when CareLink data is stale)
 ```
@@ -36,7 +36,7 @@ CareLink, and the upload runs right after.
 ## 1. CareLink input: `patientData` (the fields used)
 
 From `display/message`. Field names follow xDrip+ and carelink-python-client.
-They haven't been checked against Emilie's account yet.
+Not every field has been seen on every account.
 
 ```jsonc
 {
@@ -105,7 +105,7 @@ They haven't been checked against Emilie's account yet.
   "base_carelink": "https://…/patient",            // users/me, m2m/links/patients
   "base_cumulus":  "https://…/connect/carepartner/v13",  // display/message
   "at": 1791554400000,
-  "identity": { "role": "CARE_PARTNER_OUS", "care_partner": true, "username": "<cp-login>", "patient": "<emilie>" }
+  "identity": { "role": "CARE_PARTNER_OUS", "care_partner": true, "username": "<cp-login>", "patient": "<patient-login>" }
 }
 ```
 
@@ -145,6 +145,10 @@ All times are epoch ms (UTC), with the hour correction already applied.
 ```
 
 ### Alert categories, by priority (`rank`)
+
+`short` is the Dutch text stored in the snapshot. `/clock` and Nightscout use
+the English text from `alertShort()` in `carelink-data.js` unless `LANG = "nl"`.
+
 | rank | category | short | NGP codes |
 |---|---|---|---|
 | 0 | delivery | TOEDIENING GESTOPT | 002 007 012 024 025 029 037 061 077 130 |
@@ -181,11 +185,11 @@ All times are epoch ms (UTC), with the hour correction already applied.
   "iob": 1.35,                    // U, pump value; null = unknown or old
   "next_poll_sec": 200,           // 10–300
 
-  // ── for the next firmware round (stock firmware ignores these) ──
+  // ── Pumpkin firmware (stock SugarClock ignores these) ──
   "source": "carelink",           // carelink | nightscout
   "trend_arrows": 1,              // -3 … 3
-  "alert": "SET VERVANGEN",       // headline, "" = none
-  "alerts": [ { "short": "SET VERVANGEN", "text": "Set Change Reminder", "category": "set_change",
+  "alert": "CHANGE SET",          // headline in LANG, "" = none
+  "alerts": [ { "short": "CHANGE SET", "text": "Set Change Reminder", "category": "set_change",
                 "since": 1791553200, "silenced": false } ],
   "temp_target": true,
   "temp_target_min": 95,
@@ -194,7 +198,7 @@ All times are epoch ms (UTC), with the hour correction already applied.
   "pump_battery": 75,             // %
   "phone_battery": 88,            // %
   "warnings": ["warning", "battery"], // clock alert screen, highest priority first (see below)
-  "bridge_alert": ""              // "" | "CARELINK LOGIN NODIG" | "CARELINK STORING"
+  "bridge_alert": ""              // "" | "CARELINK LOGIN NEEDED" | "CARELINK ERROR" (LANG=nl: NODIG / STORING)
 }
 ```
 
@@ -248,9 +252,9 @@ than 15 minutes.
 
 ---
 
-## 4. Output: Nightscout (ns10be)
+## 4. Output: Nightscout (optional)
 
-`device` / `enteredBy` = `sugarclock-bridge`. Nightscout overwrites on the keys
+`device` / `enteredBy` = `sugarclock-bridge` (name kept from the first versions). Nightscout overwrites on the keys
 shown, so posting the same data twice doesn't create a duplicate.
 
 **`/api/v1/entries`** (upsert key: `sysTime` + `type`)
@@ -308,7 +312,8 @@ Treatment window: from the newest bridge treatment − 30 min, never before
 | `CLOCK_TOKEN` | secret | — | Bearer for `/clock`, `/debug`, `/carelink/poll` |
 | `NS_TOKEN` | secret | — | Nightscout read access (fallback) |
 | `NS_API_SECRET` / `NS_UPLOAD_TOKEN` | secret | — | Nightscout write access; enables the upload |
-| `NS_URL` | var | ns10be | |
+| `NS_URL` | var | empty | Nightscout address; empty = CareLink only |
+| `LANG` | var | `en` | `en` / `nl`: short alert texts in `/clock` and Nightscout |
 | `NS_UPLOAD` | var | `true` | upload on/off |
 | `CARELINK_ENABLED` | var | `true` | CareLink on/off |
 | `CARELINK_COUNTRY` | var | `BE` | region choice in discovery |

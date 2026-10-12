@@ -9,15 +9,16 @@
 // simply retried on the next poll. Nightscout upserts entries (sysTime+type) and
 // treatments (created_at+eventType), so overlap never duplicates.
 
-import { parseCareLinkDate, deviceTimeOffsetMs, mapCareLinkTrend, tempTargetFrom } from './carelink-data.js';
+import { parseCareLinkDate, deviceTimeOffsetMs, mapCareLinkTrend, tempTargetFrom, alertShort } from './carelink-data.js';
 import { computeTrend } from './logic.js';
 
 const MIN = 60 * 1000;
 const TIMEOUT_MS = 8000;
+// Kept from the bridge's first versions so existing Nightscout data stays recognised.
 export const DEVICE = 'sugarclock-bridge';
 const TEMP_TARGET_MGDL = 150; // the 780G temp target is fixed at 150 mg/dL
 const TREATMENT_OVERLAP_MS = 30 * MIN; // markers can show up late; re-send this window
-const FIRST_RUN_WINDOW_MS = 15 * MIN; // no bridge treatments yet: don't backfill ns10be's history
+const FIRST_RUN_WINDOW_MS = 15 * MIN; // no bridge treatments yet: don't backfill Nightscout's existing history
 
 const iso = (ms) => new Date(ms).toISOString();
 const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
@@ -100,7 +101,7 @@ export function entriesFrom(snapshot, sinceMs) {
 }
 
 /** Snapshot -> one devicestatus document in the shape Nightscout's pump/IOB plugins read. */
-export function deviceStatusFrom(snapshot) {
+export function deviceStatusFrom(snapshot, lang = 'en') {
   const at = snapshot.device_data_at || snapshot.fetched_at;
   const suspended = snapshot.pump.suspended === true;
   const pump = {
@@ -125,7 +126,7 @@ export function deviceStatusFrom(snapshot) {
       phone_in_range: snapshot.phone.in_range,
       temp_target: tempTargetFrom(snapshot),
       alerts: snapshot.alerts.map((a) => ({
-        code: a.code, category: a.category, text: a.text, short: a.short,
+        code: a.code, category: a.category, text: a.text, short: alertShort(a, lang),
         since: a.since ? iso(a.since) : null, silenced: a.silenced,
       })),
     },
@@ -244,12 +245,12 @@ export async function uploadToNightscout(env, { snapshot, patientData }, now, fe
   // devicestatus
   const statusAt = snapshot.device_data_at || snapshot.fetched_at;
   const nsStatusAt = Array.isArray(lastStatus) && lastStatus[0] ? Date.parse(lastStatus[0].created_at) || 0 : 0;
-  if (statusAt > nsStatusAt + 1000) { await post('/api/v1/devicestatus', deviceStatusFrom(snapshot)); summary.devicestatus = true; }
+  if (statusAt > nsStatusAt + 1000) { await post('/api/v1/devicestatus', deviceStatusFrom(snapshot, String(env.LANG || 'en').toLowerCase())); summary.devicestatus = true; }
 
   // treatments
   const own = (Array.isArray(bridgeTreatments) ? bridgeTreatments : []).filter((t) => t.eventType !== 'Temporary Target');
   const cursor = own.length ? Math.max(...own.map((t) => Date.parse(t.created_at) || 0)) : 0;
-  // Never go back before the bridge's first upload: older treatments came from ns10be's poller.
+  // Never go back before the bridge's first upload: older treatments came from another uploader.
   const floor = await uploadFloor(env.CARELINK, now);
   const since = Math.max(cursor ? cursor - TREATMENT_OVERLAP_MS : now - FIRST_RUN_WINDOW_MS, floor);
   const ownKeys = new Set(own.map((t) => `${t.eventType}|${Date.parse(t.created_at)}`));

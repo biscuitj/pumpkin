@@ -1,4 +1,4 @@
-// Pure logic for the SugarClock bridge. No I/O here, so it is unit-testable.
+// Pure logic for the Pumpkin bridge. No I/O here, so it is unit-testable.
 
 const MIN = 60 * 1000;
 
@@ -51,7 +51,7 @@ export function directionFromSlope(s) {
 
 /**
  * Trend for the clock. A real direction from the feed wins (Triple* is mapped to
- * Double*, the strongest arrow SugarClock draws). "NOT COMPUTABLE" and friends
+ * Double*, the strongest arrow the clock draws). "NOT COMPUTABLE" and friends
  * fall back to the slope of recent readings; too little data gives "NONE".
  */
 export function computeTrend(entries) {
@@ -116,7 +116,7 @@ export function objectIdTime(id) {
 /**
  * Seconds until the clock should poll again.
  *
- * ns10be's CareLink poller (nightscout-connect) polls aligned to the sensor:
+ * Nightscout's CareLink poller (nightscout-connect) polls aligned to the sensor:
  * last reading time + 5 min + a ~68 s buffer (+ up to 18 s jitter). If CareLink
  * doesn't have the reading yet, it waits for the next 5-minute slot. So the next
  * arrival is predictable from the newest reading's sensor time plus the observed

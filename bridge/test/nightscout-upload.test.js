@@ -100,7 +100,8 @@ test('devicestatus carries pump IOB where Nightscout looks for it, plus alerts',
   assert.deepEqual(d.pump.battery, { percent: 75 });
   assert.equal(d.pump.status.status, 'normal');
   assert.equal(d.uploader.battery, 88);
-  assert.equal(d.carelink.alerts[0].short, 'SET VERVANGEN');
+  assert.equal(d.carelink.alerts[0].short, 'CHANGE SET');
+  assert.equal(deviceStatusFrom(snap, 'nl').carelink.alerts[0].short, 'SET VERVANGEN');
   assert.deepEqual(d.carelink.temp_target, { active: true, minutes_left: 60 });
 });
 
@@ -140,7 +141,7 @@ test('first upload: gap since Nightscout newest, devicestatus, recent treatments
   const snapshot = buildSnapshot(pd, NOW);
   const r = await uploadToNightscout(nsEnv, { snapshot, patientData: pd }, NOW, ns.handler);
   assert.deepEqual(r, { entries: 4, devicestatus: true, treatments: 2, temp_target: null });
-  // first run: no bridge treatments yet -> only the last 15 min, not ns10be's history
+  // first run: no bridge treatments yet -> only the last 15 min, not Nightscout's existing history
   assert.deepEqual(ns.db.treatments.map((t) => t.eventType), ['Carb Correction', 'BG Check']);
   // API secret goes as sha1 header; the follower token is never used to write
   assert.ok(ns.calls.every((c) => c.headers['api-secret'] === 'e5e9fa1ba31ecd1ae84f75caaa474f3a663f05f4'));

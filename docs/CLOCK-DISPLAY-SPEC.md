@@ -1,8 +1,7 @@
-# SugarClock: display spec (bridge features)
+# Pumpkin: display spec (bridge features)
 
-Status:
-- **Done (0.4.0–0.5.x):** on the clock.
-- **Built in 0.6.0** (marked "next round" / bold below): in `~/Sites/SugarClock` and the Worker, waiting for flash + deploy.
+All of this is in the firmware since 0.6.0. Items marked "next round" were
+built in 0.6.0; see `CHANGELOG.md` for later changes.
 
 ## Screens
 

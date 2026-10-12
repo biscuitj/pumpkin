@@ -1,14 +1,20 @@
 {
-  "name": "sugarclock-bridge",
-  "version": "0.8.0",
+  "name": "pumpkin-bridge",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "login": "node tools/carelink-login.mjs"
   },
   "devDependencies": {
+    "playwright-core": "1.55.1",
     "wrangler": "^4.0.0"
+  },
+  "description": "Pumpkin bridge: CareLink care-partner data for the Pumpkin clock and Nightscout",
+  "engines": {
+    "node": ">=20"
   }
 }

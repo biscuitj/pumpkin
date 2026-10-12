@@ -77,7 +77,7 @@ export function jwt(expMs, details = { country: 'BE', preferred_username: 'cp-us
 }
 
 /** Fake CareLink cloud: discovery, SSO config, token endpoint and API. */
-export function fakeCareLink({ data = () => patientData(), refreshStatus = 200, refreshBody = { error: 'invalid_grant', error_description: 'Unknown or invalid refresh token.' }, displayStatuses = [], patients = [{ username: 'emilie' }] } = {}) {
+export function fakeCareLink({ data = () => patientData(), refreshStatus = 200, refreshBody = { error: 'invalid_grant', error_description: 'Unknown or invalid refresh token.' }, displayStatuses = [], patients = [{ username: 'patient-a' }] } = {}) {
   const calls = [];
   let refreshCount = 0;
   const statuses = [...displayStatuses];

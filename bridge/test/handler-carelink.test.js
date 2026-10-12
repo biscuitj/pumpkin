@@ -81,7 +81,10 @@ test('fresh CareLink snapshot feeds /clock with pump extras, no fetch needed', a
   assert.equal(body.tir, 100);
   assert.equal(body.temp_target, true);
   assert.equal(body.temp_target_min, 95);
-  assert.equal(body.alert, 'SET AANSLUITEN');
+  assert.equal(body.alert, 'CONNECT SET'); // English by default
+  assert.deepEqual(body.alerts.map((a) => a.short), ['CONNECT SET', 'RESERVOIR LOW']);
+  const nl = await clock({ ...envWith(kv), LANG: 'nl' });
+  assert.equal(nl.body.alert, 'SET AANSLUITEN'); // LANG = nl
   assert.deepEqual(body.alerts.map((a) => a.category), ['set_connect', 'reservoir_low']); // glucose alert left out
   assert.equal(body.alerts[0].silenced, true);
   assert.deepEqual(body.warnings, ['warning', 'reservoir']); // set connect -> triangle, reservoir low -> icon
@@ -113,13 +116,15 @@ test('no tokens: Nightscout fallback, bridge_alert asks for a login', async () =
   assert.equal(status, 200);
   assert.equal(body.source, 'nightscout');
   assert.equal(body.glucose, 150);
-  assert.equal(body.bridge_alert, 'CARELINK LOGIN NODIG');
+  assert.equal(body.bridge_alert, 'CARELINK LOGIN NEEDED');
   assert.equal(body.iob, null);
   assert.equal(body.alert, '');
   assert.deepEqual(body.alerts, []);
   assert.equal(body.temp_target, false);
   const status2 = JSON.parse(kv.store.get('status'));
   assert.equal(status2.auth_error, true);
+  const nl = await clock({ ...envWith(kv), LANG: 'nl' });
+  assert.equal(nl.body.bridge_alert, 'CARELINK LOGIN NODIG');
 });
 
 test('rejected refresh token: fallback plus login alert, then backoff (no hammering)', async () => {
@@ -127,12 +132,12 @@ test('rejected refresh token: fallback plus login alert, then backoff (no hammer
   const kv = memoryKV({ tokens: { ...TOKENS(), access_token: jwt(NOW - MIN) } });
   let r = await clock(envWith(kv));
   assert.equal(r.body.source, 'nightscout');
-  assert.equal(r.body.bridge_alert, 'CARELINK LOGIN NODIG');
+  assert.equal(r.body.bridge_alert, 'CARELINK LOGIN NEEDED');
   const before = cl.calls.length;
   _resetCache(); // new isolate, only KV status remains
   r = await clock(envWith(kv));
   assert.equal(cl.calls.length, before, 'backoff: no second login attempt right away');
-  assert.equal(r.body.bridge_alert, 'CARELINK LOGIN NODIG');
+  assert.equal(r.body.bridge_alert, 'CARELINK LOGIN NEEDED');
 });
 
 test('stale CareLink snapshot and Nightscout down: 502, never an old value', async () => {
@@ -191,4 +196,14 @@ test('clock warnings: categories map to icons/texts, deduped, priority order, gl
     ['battery', 'bg']);
   assert.deepEqual(clockWarnings([a('calibration'), a('sensor_signal'), a('set_connect')]), ['warning']);
   assert.deepEqual(clockWarnings([]), []);
+});
+
+test('without Nightscout: CareLink alone serves the clock, and nothing calls Nightscout', async () => {
+  const pd = patientData();
+  const kv = memoryKV({ tokens: TOKENS(), snapshot: buildSnapshot(pd, NOW - 2 * MIN) });
+  const { status, body } = await clock({ CLOCK_TOKEN: 'clock-secret', CARELINK: kv });
+  assert.equal(status, 200);
+  assert.equal(body.source, 'carelink');
+  assert.equal(body.glucose, 120);
+  assert.equal(nsCalls.length, 0);
 });
