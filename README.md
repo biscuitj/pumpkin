@@ -45,3 +45,10 @@ python3 -m pytest -q tests/                 # host tests
 - Not affiliated with or endorsed by Medtronic. Uses an unofficial CareLink
   API that can change at any time. Not a medical device: never base treatment
   decisions on this display alone.
+
+## Support
+
+Pumpkin is a personal project, made for one family and shared with others. If
+it helps yours, you can [buy me a coffee](https://buymeacoffee.com/biscuitj_pumpkin).
+It's a thank-you, not a purchase: it doesn't buy support, updates or any
+guarantee, and everything above still applies.
