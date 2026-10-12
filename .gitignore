@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Bridge (Cloudflare Worker)
+node_modules/
+.wrangler/
+bridge/wrangler.toml
+.dev.vars
+
+# Firmware build output (firmware/.gitignore covers the rest)
+.pio/
+
+# Local scratch: patches, raw CareLink dumps (contain personal data)
+*.patch
+raw-dump*.json

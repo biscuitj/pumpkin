@@ -32,7 +32,7 @@ static const char SIGNPOST_HTML[] PROGMEM =
 "<p>This little window can&rsquo;t stay open long enough to join a school network. "
 "Open Safari or Chrome and go to:</p>"
 "<a class=\"addr\" href=\"http://192.168.4.1/\">http://192.168.4.1</a>"
-"<ol><li>Stay connected to <strong>SugarClock-Setup</strong>.</li>"
+"<ol><li>Stay connected to this clock&rsquo;s <strong>SugarClock-Setup</strong> network.</li>"
 "<li>Open the address above in your normal browser.</li>"
 "<li>Pick your network on the WiFi tab and sign in.</li></ol>"
 "</body></html>";

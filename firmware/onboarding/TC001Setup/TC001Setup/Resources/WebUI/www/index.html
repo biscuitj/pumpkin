@@ -39,6 +39,7 @@
                     <button type="button" class="tab-btn" data-tab="time" onclick="switchTab('time')">Time &amp; timers</button>
                     <button type="button" class="tab-btn" data-tab="weather" onclick="switchTab('weather')">Weather</button>
                     <button type="button" class="tab-btn" data-tab="connection" onclick="switchTab('connection')">Wi-Fi</button>
+                    <button type="button" class="tab-btn" data-tab="clocks" onclick="switchTab('clocks')">Clocks</button>
                     <button type="button" class="tab-btn" data-tab="integrations" onclick="switchTab('integrations')">Integrations</button>
                     <button type="button" class="tab-btn" data-tab="danger" onclick="switchTab('danger')">Reset device</button>
                 </div>
@@ -226,6 +227,11 @@
                             <input type="number" id="night_brightness" min="1" max="255" value="10">
                             <div class="hint">Automatically dims during night hours</div>
                         </div>
+                        <div class="toggle-row">
+                            <label for="night_full_mute">Full Mute</label>
+                            <input type="checkbox" id="night_full_mute">
+                        </div>
+                        <div class="hint">Black screen and no buzzer during night hours, instead of the night brightness. Nothing wakes the clock, not even an urgent low: only for a clock nobody watches at night, e.g. at school.</div>
                     </div>
                 </div>
 
@@ -320,6 +326,13 @@
                                 <div class="hint">Use the colors chosen under Blood Sugar for the range text and icon. Off keeps red LOW/HIGH and green OK.</div>
                             </div>
                             <input type="checkbox" id="ambient_use_glucose_colors">
+                        </div>
+                        <div class="toggle-row">
+                            <div>
+                                <label for="ambient_show_tir">Show time in range instead of LOW / OK / HIGH</label>
+                                <div class="hint">Companion + text style only. Needs the bridge endpoint; falls back to LOW / OK / HIGH when no time in range is available. The preview keeps showing the words.</div>
+                            </div>
+                            <input type="checkbox" id="ambient_show_tir" checked>
                         </div>
                         <div class="ambient-preview-shell">
                             <div class="ambient-preview-meta">
@@ -459,6 +472,46 @@
                     <div class="toggle-row">
                         <label>Show Delta on LED Display</label>
                         <input type="checkbox" id="show_delta">
+                    </div>
+                    <div class="toggle-row">
+                        <label>Show Trend Screen (arrow + delta)</label>
+                        <input type="checkbox" id="trend_display_enabled" checked>
+                    </div>
+                    <div class="toggle-row">
+                        <label>Show Time in Range Screen (bridge endpoint)</label>
+                        <input type="checkbox" id="tir_display_enabled" checked>
+                    </div>
+                    <div class="toggle-row">
+                        <label>Show Active Insulin Screen (bridge endpoint)</label>
+                        <input type="checkbox" id="iob_display_enabled" checked>
+                    </div>
+                    <div class="toggle-row">
+                        <label>Show Pump Alerts Screen (bridge endpoint, only while an alert is active)</label>
+                        <input type="checkbox" id="alerts_display_enabled" checked>
+                    </div>
+                    <div class="toggle-row">
+                        <label>Pump Alerts Replace the Pet Screen</label>
+                        <input type="checkbox" id="alerts_replace_pet">
+                    </div>
+                    <div class="form-group">
+                        <label>Preview Pump Alerts</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button type="button" class="btn btn-test" onclick="previewAlert('suspended','Pause')">Pause</button>
+                            <button type="button" class="btn btn-test" onclick="previewAlert('battery','Battery')">Battery</button>
+                            <button type="button" class="btn btn-test" onclick="previewAlert('reservoir','Reservoir')">Reservoir</button>
+                            <button type="button" class="btn btn-test" onclick="previewAlert('bg','BG required')">BG required</button>
+                            <button type="button" class="btn btn-test" onclick="previewAlert('warning','Warning')">Warning</button>
+                            <button type="button" class="btn btn-test" onclick="previewAlert('sensor','Sensor')">Sensor</button>
+                            <button type="button" class="btn btn-test" onclick="previewAlert('set','Set')">Set</button>
+                            <button type="button" class="btn btn-test" onclick="previewAlert('all','All')">All</button>
+                        </div>
+                        <span class="test-result" id="preview-alert-result" style="display:block;margin-top:8px;"></span>
+                    </div>
+                    <div class="form-group">
+                        <label>Clear Pump Alerts</label>
+                        <button type="button" class="btn btn-test" onclick="clearPumpAlerts()">Clear pump alerts</button>
+                        <span class="test-result" id="clear-alerts-result" style="display:block;margin-top:8px;"></span>
+                        <div class="hint">For a reminder that stays on after you did what it asked. Clears the bridge's remembered reminders; an alert that is still active on the pump comes back until it's dismissed there.</div>
                     </div>
                     <div class="divider"></div>
                     <div class="form-group">
@@ -887,6 +940,45 @@ curl -X POST http://DEVICE_IP/api/sysmon \
                 </div>
             </div>
 
+            <!-- CLOCKS TAB -->
+            <div class="tab-panel" id="tab-clocks">
+                <div class="card">
+                    <h2>This Clock</h2>
+                    <div class="form-group">
+                        <label for="clock_name">Clock Name</label>
+                        <input type="text" id="clock_name" maxlength="32" autocomplete="off">
+                        <div class="hint">Shown in the list of clocks, and used for its address: "Living Room" becomes <code>living-room.local</code>. Leave empty for the default name. The new address works right after saving.</div>
+                    </div>
+                    <div class="hint" id="clock-self-address" style="margin-top:4px;"></div>
+                </div>
+
+                <div class="card">
+                    <h2>Other Clocks on This Network</h2>
+                    <p class="card-intro" style="margin:-8px 0 12px;">SugarClocks this clock can see on your Wi-Fi. Open one to change its own settings, or copy this clock's settings to it.</p>
+                    <div id="clocks-list"></div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+                        <button type="button" class="btn btn-test" onclick="refreshClocks()">Search again</button>
+                        <span class="test-result" id="clocks-scan-result"></span>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Copy Settings to Other Clocks</h2>
+                    <p class="card-intro" style="margin:-8px 0 12px;">Sends this clock's saved screens, colours, glucose ranges, buzzer alerts and pet settings to the clocks ticked above. Wi-Fi, name, brightness and weather always stay per clock.</p>
+                    <div class="toggle-row">
+                        <label for="copy_night">Include night mode and Full Mute hours</label>
+                        <input type="checkbox" id="copy_night">
+                    </div>
+                    <div class="toggle-row">
+                        <label for="copy_source">Include the data source (URL and token)</label>
+                        <input type="checkbox" id="copy_source">
+                    </div>
+                    <div class="hint">Handy for a new clock: set up its Wi-Fi, then copy everything else from here. The token is sent over your local network.</div>
+                    <button type="button" class="btn btn-test" style="margin-top:12px;" onclick="copySettings()">Copy settings to selected clocks</button>
+                    <div class="test-result" id="copy-result" style="display:block;margin-top:8px;"></div>
+                </div>
+            </div>
+
             <!-- DANGER TAB -->
             <div class="tab-panel" id="tab-danger">
                 <div class="card reset-card">
@@ -928,11 +1020,12 @@ curl -X POST http://DEVICE_IP/api/sysmon \
             const labels = {
                 glucose: 'Blood Sugar', display: 'Display', time: 'Time & Timers',
                 weather: 'Weather', connection: 'Wi-Fi', integrations: 'Integrations',
-                ambient: 'Display Pet', danger: 'Reset Device'
+                ambient: 'Display Pet', danger: 'Reset Device', clocks: 'Clocks'
             };
             const sectionName = labels[id];
             document.getElementById('config-page-title').textContent = sectionName ? sectionName + ' Configuration' : 'Configuration';
             history.replaceState(null, '', id === 'glucose' ? location.pathname : '#' + id);
+            if (id === 'clocks') loadClocks();
             setNavOpen(false);
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
@@ -1335,6 +1428,11 @@ curl -X POST http://DEVICE_IP/api/sysmon \
                 const r = await fetch('/api/config');
                 const c = await r.json();
 
+                // This clock
+                document.getElementById('clock_name').value = c.clock_name || '';
+                document.getElementById('clock_name').placeholder = c.clock_display_name || '';
+                showClockName(c.clock_display_name);
+
                 // Connection
                 document.getElementById('wifi_ssid').value = c.wifi_ssid || '';
                 document.getElementById('wifi_password').value = '';
@@ -1374,11 +1472,17 @@ curl -X POST http://DEVICE_IP/api/sysmon \
                 document.getElementById('auto_brightness').checked = c.auto_brightness === true;
                 updateBrightnessLabel();
                 document.getElementById('show_delta').checked = c.show_delta || false;
+                document.getElementById('trend_display_enabled').checked = c.trend_display_enabled !== false;
+                document.getElementById('tir_display_enabled').checked = c.tir_display_enabled !== false;
+                document.getElementById('iob_display_enabled').checked = c.iob_display_enabled !== false;
+                document.getElementById('alerts_display_enabled').checked = c.alerts_display_enabled !== false;
+                document.getElementById('alerts_replace_pet').checked = c.alerts_replace_pet === true;
                 document.getElementById('use_mmol').value = c.use_mmol ? '1' : '0';
                 document.getElementById('night_mode_enabled').checked = c.night_mode_enabled || false;
                 document.getElementById('night_start').value = c.night_start_hour !== undefined ? c.night_start_hour : 22;
                 document.getElementById('night_end').value = c.night_end_hour !== undefined ? c.night_end_hour : 7;
                 document.getElementById('night_brightness').value = c.night_brightness || 10;
+                document.getElementById('night_full_mute').checked = c.night_full_mute === true;
                 document.getElementById('glucose_only_when_low').checked = c.glucose_only_when_low === true;
                 document.getElementById('auto_cycle_enabled').checked = c.auto_cycle_enabled !== false;
                 document.getElementById('auto_cycle_sec').value = c.auto_cycle_sec || 10;
@@ -1386,6 +1490,7 @@ curl -X POST http://DEVICE_IP/api/sysmon \
                 document.getElementById('ambient_seasonal').checked = c.ambient_seasonal !== false;
                 document.getElementById('ambient_character').value = PixelCompanions.valid(c.ambient_character) ? c.ambient_character : 0;
                 document.getElementById('ambient_use_glucose_colors').checked = c.ambient_use_glucose_colors === true;
+                document.getElementById('ambient_show_tir').checked = c.ambient_show_tir !== false;
                 document.getElementById('ambient_style').value = PixelCompanions.validStyle(c.ambient_style) ? c.ambient_style : 0;
                 drawCompanionPreview();
                 updateAmbientDisplaySetting();
@@ -1487,6 +1592,7 @@ curl -X POST http://DEVICE_IP/api/sysmon \
             }
 
             const data = {
+                clock_name: document.getElementById('clock_name').value.trim(),
                 data_source: parseInt(document.getElementById('data_source').value),
                 server_url: document.getElementById('server_url').value,
                 auth_token: document.getElementById('auth_token').value,
@@ -1501,11 +1607,17 @@ curl -X POST http://DEVICE_IP/api/sysmon \
                 brightness: brightnessDeviceValue,
                 ...((brightnessChanged || brightnessModeChanged) ? {auto_brightness: document.getElementById('auto_brightness').checked} : {}),
                 show_delta: document.getElementById('show_delta').checked,
+                trend_display_enabled: document.getElementById('trend_display_enabled').checked,
+                tir_display_enabled: document.getElementById('tir_display_enabled').checked,
+                iob_display_enabled: document.getElementById('iob_display_enabled').checked,
+                alerts_display_enabled: document.getElementById('alerts_display_enabled').checked,
+                alerts_replace_pet: document.getElementById('alerts_replace_pet').checked,
                 use_mmol: document.getElementById('use_mmol').value === '1',
                 night_mode_enabled: document.getElementById('night_mode_enabled').checked,
                 night_start_hour: parseInt(document.getElementById('night_start').value),
                 night_end_hour: parseInt(document.getElementById('night_end').value),
                 night_brightness: parseInt(document.getElementById('night_brightness').value),
+                night_full_mute: document.getElementById('night_full_mute').checked,
                 glucose_only_when_low: document.getElementById('glucose_only_when_low').checked,
                 auto_cycle_enabled: document.getElementById('auto_cycle_enabled').checked,
                 auto_cycle_sec: parseInt(document.getElementById('auto_cycle_sec').value),
@@ -1513,6 +1625,7 @@ curl -X POST http://DEVICE_IP/api/sysmon \
                 ambient_seasonal: document.getElementById('ambient_seasonal').checked,
                 ambient_character: Number(document.getElementById('ambient_character').value),
                 ambient_use_glucose_colors: document.getElementById('ambient_use_glucose_colors').checked,
+                ambient_show_tir: document.getElementById('ambient_show_tir').checked,
                 ambient_style: Number(document.getElementById('ambient_style').value),
                 thresh_urgent_low: parseInt(document.getElementById('thresh_urgent_low').value),
                 thresh_low: parseInt(document.getElementById('thresh_low').value),
@@ -1671,6 +1784,176 @@ curl -X POST http://DEVICE_IP/api/sysmon \
         updateCurrentMode();
 
         // Mock weather animation trigger
+        async function previewAlert(id, label) {
+            const res = document.getElementById('preview-alert-result');
+            res.textContent = 'Sending...';
+            res.className = 'test-result';
+            try {
+                const r = await fetch('/api/test/alert', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id: id})
+                });
+                const d = await r.json();
+                if (r.ok) {
+                    res.textContent = 'Showing: ' + label;
+                    res.className = 'test-result test-success';
+                } else {
+                    res.textContent = d.error || 'Failed';
+                    res.className = 'test-result test-error';
+                }
+            } catch (e) {
+                res.textContent = 'Network error';
+                res.className = 'test-result test-error';
+            }
+            setTimeout(() => { res.textContent = ''; }, 5000);
+        }
+
+        function showClockName(name) {
+            if (!name) return;
+            document.title = name + ' - SugarClock';
+            const dev = document.querySelector('.brand-device');
+            if (dev) dev.textContent = name;
+        }
+
+        function clockLink(host, ip) {
+            const wrap = document.createElement('span');
+            const add = (text, href) => {
+                const a = document.createElement('a');
+                a.href = href; a.textContent = text;
+                if (wrap.childNodes.length) wrap.appendChild(document.createTextNode(' · '));
+                wrap.appendChild(a);
+            };
+            if (host) add(host, 'http://' + host + '/');
+            if (ip && ip !== '0.0.0.0') add(ip, 'http://' + ip + '/');
+            return wrap;
+        }
+
+        async function loadClocks() {
+            try {
+                const d = await (await fetch('/api/clocks')).json();
+                const self = document.getElementById('clock-self-address');
+                self.textContent = 'Reachable at ';
+                self.appendChild(clockLink(d.self.host, d.self.ip));
+                if (!d.self.host) self.appendChild(document.createTextNode(' (the .local address appears within a minute of joining Wi-Fi)'));
+                showClockName(d.self.name);
+
+                const list = document.getElementById('clocks-list');
+                const ticked = new Set([...list.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value));
+                list.textContent = '';
+                if (!d.clocks.length) {
+                    const p = document.createElement('div');
+                    p.className = 'hint';
+                    p.textContent = d.scan_age_s === null ? 'Searching…' : 'No other clocks found.';
+                    list.appendChild(p);
+                }
+                d.clocks.forEach(c => {
+                    const row = document.createElement('label');
+                    row.className = 'toggle-row';
+                    row.style.alignItems = 'flex-start';
+                    const info = document.createElement('div');
+                    const name = document.createElement('strong');
+                    name.textContent = c.name;
+                    info.appendChild(name);
+                    const sub = document.createElement('div');
+                    sub.className = 'hint';
+                    sub.appendChild(clockLink(c.host, c.ip));
+                    if (c.version) sub.appendChild(document.createTextNode(' · v' + c.version));
+                    info.appendChild(sub);
+                    const box = document.createElement('input');
+                    box.type = 'checkbox';
+                    box.value = c.ip;
+                    box.checked = ticked.has(c.ip);
+                    box.title = 'Copy settings to ' + c.name;
+                    row.appendChild(info);
+                    row.appendChild(box);
+                    list.appendChild(row);
+                });
+                return d;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function refreshClocks() {
+            const res = document.getElementById('clocks-scan-result');
+            res.textContent = 'Searching…';
+            res.className = 'test-result';
+            try { await fetch('/api/clocks/scan', {method: 'POST'}); } catch (e) {}
+            await new Promise(ok => setTimeout(ok, 4000));
+            const d = await loadClocks();
+            res.textContent = d ? (d.clocks.length + (d.clocks.length === 1 ? ' clock' : ' clocks') + ' found') : 'Network error';
+            setTimeout(() => { res.textContent = ''; }, 5000);
+        }
+
+        async function copySettings() {
+            const res = document.getElementById('copy-result');
+            const show = (text, ok) => { res.textContent = text; res.className = 'test-result ' + (ok ? 'test-success' : 'test-error'); };
+            const targets = [...document.querySelectorAll('#clocks-list input[type=checkbox]:checked')].map(c => c.value);
+            if (!targets.length) { show('Tick at least one clock in the list above', false); return; }
+            res.textContent = 'Copying…';
+            res.className = 'test-result';
+            try {
+                const r = await fetch('/api/clocks/copy', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        targets: targets,
+                        night: document.getElementById('copy_night').checked,
+                        source: document.getElementById('copy_source').checked
+                    })
+                });
+                if (!r.ok) {
+                    const d = await r.json().catch(() => ({}));
+                    show(d.error || 'Failed', false);
+                    return;
+                }
+                for (let i = 0; i < 30; i++) {
+                    await new Promise(ok => setTimeout(ok, 1000));
+                    const d = await (await fetch('/api/clocks/copy')).json();
+                    if (d.running) continue;
+                    const failed = d.results.filter(x => x.status !== 'ok');
+                    if (!failed.length) show('Copied to ' + d.results.map(x => x.name).join(', '), true);
+                    else show('Not copied to ' + failed.map(x => x.name + ' (' + x.code + ')').join(', '), false);
+                    return;
+                }
+                show('No answer yet. Check the other clocks', false);
+            } catch (e) {
+                show('Network error', false);
+            }
+        }
+
+        async function clearPumpAlerts() {
+            const res = document.getElementById('clear-alerts-result');
+            const show = (text, ok) => {
+                res.textContent = text;
+                res.className = 'test-result ' + (ok ? 'test-success' : 'test-error');
+                setTimeout(() => { res.textContent = ''; }, 6000);
+            };
+            res.textContent = 'Clearing...';
+            res.className = 'test-result';
+            try {
+                const r = await fetch('/api/alerts/clear', {method: 'POST'});
+                if (!r.ok) {
+                    const d = await r.json().catch(() => ({}));
+                    show(d.error || 'Failed', false);
+                    return;
+                }
+                for (let i = 0; i < 20; i++) {
+                    await new Promise((ok) => setTimeout(ok, 1000));
+                    const d = await (await fetch('/api/alerts/clear')).json();
+                    if (d.status === 'pending') continue;
+                    if (d.status === 'cleared') show('Cleared', true);
+                    else if (d.status === 'nothing') show('Nothing to clear', true);
+                    else show('Bridge error (' + d.code + ')', false);
+                    return;
+                }
+                show('No answer from the bridge', false);
+            } catch (e) {
+                show('Network error', false);
+            }
+        }
+
         async function mockWeather(conditionId, desc) {
             const res = document.getElementById('mock-weather-result');
             res.textContent = 'Sending...';

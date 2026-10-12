@@ -21,6 +21,10 @@
 #include "web_assets.h"
 #include "ota_manager.h"
 #include "fleet_manager.h"
+#include "bridge_alerts.h"
+#include "clock_identity.h"
+#include "clock_net.h"
+#include <limits.h>
 
 #include <ESPAsyncWebServer.h>
 #include <WebResponseImpl.h>
@@ -161,10 +165,11 @@ static void add_libre_people(JsonDocument& doc) {
 }
 
 // GET /api/config
-static void handle_get_config(AsyncWebServerRequest* request) {
+// The settings the web UI reads; also the source for copying settings to
+// other clocks (filtered there). Secrets are never part of it.
+static void fill_config_doc(JsonDocument& doc) {
     LibreConfigLock lock(config_libre_mutex());
     AppConfig& cfg = config_get();
-    JsonDocument doc;
 
     // Secrets are never echoed back. This endpoint is reachable over plain HTTP,
     // including from an open setup AP, so the UI is told only whether a value is
@@ -202,12 +207,18 @@ static void handle_get_config(AsyncWebServerRequest* request) {
     doc["timezone"] = cfg.timezone;
     doc["use_24h"] = cfg.use_24h;
     doc["time_display_enabled"] = cfg.time_display_enabled;
+    doc["trend_display_enabled"] = cfg.trend_display_enabled;
+    doc["tir_display_enabled"] = cfg.tir_display_enabled;
+    doc["iob_display_enabled"] = cfg.iob_display_enabled;
+    doc["alerts_display_enabled"] = cfg.alerts_display_enabled;
+    doc["alerts_replace_pet"] = cfg.alerts_replace_pet;
     doc["default_mode"] = cfg.default_mode;
     doc["ambient_enabled"] = cfg.ambient_enabled;
     doc["ambient_creature"] = cfg.ambient_character == COMPANION_GHOST ? 1 : 0;
     doc["ambient_character"] = cfg.ambient_character;
     doc["ambient_style"] = cfg.ambient_style;
     doc["ambient_use_glucose_colors"] = cfg.ambient_use_glucose_colors;
+    doc["ambient_show_tir"] = cfg.ambient_show_tir;
     doc["ambient_seasonal"] = cfg.ambient_seasonal;
 
     // Alerts
@@ -233,6 +244,7 @@ static void handle_get_config(AsyncWebServerRequest* request) {
     doc["night_start_hour"] = cfg.night_start_hour;
     doc["night_end_hour"] = cfg.night_end_hour;
     doc["night_brightness"] = cfg.night_brightness;
+    doc["night_full_mute"] = cfg.night_full_mute;
 
     // Stale timeout
     doc["stale_timeout_min"] = cfg.stale_timeout_min;
@@ -280,6 +292,17 @@ static void handle_get_config(AsyncWebServerRequest* request) {
     doc["auto_cycle_enabled"] = cfg.auto_cycle_enabled;
     doc["auto_cycle_sec"] = cfg.auto_cycle_sec;
 
+
+    // This clock on the local network
+    doc["clock_name"] = cfg.clock_name;
+    doc["clock_display_name"] = clock_net_name();
+    doc["clock_host"] = clock_net_local_host();
+    doc["clock_id"] = clock_net_id();
+}
+
+static void handle_get_config(AsyncWebServerRequest* request) {
+    JsonDocument doc;
+    fill_config_doc(doc);
     String output;
     serializeJson(doc, output);
     request->send(200, "application/json", output);
@@ -314,6 +337,16 @@ static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, si
         (!doc["ambient_style"].is<int>() || !companion_style_valid(doc["ambient_style"].as<int>()))) {
         request->send(400, "application/json", "{\"error\":\"Invalid companion display style\"}");
         return;
+    }
+
+    if (doc.as<JsonObjectConst>().containsKey("clock_name")) {
+        // "" goes back to the default name; anything else must make a usable address
+        const char* name = doc["clock_name"].is<const char*>() ? doc["clock_name"].as<const char*>() : nullptr;
+        if (!name || (name[0] && !clock_name_valid(name))) {
+            request->send(400, "application/json",
+                          "{\"error\":\"Clock name: up to 32 characters, with at least one letter or digit\"}");
+            return;
+        }
     }
 
     if (doc.as<JsonObjectConst>().containsKey("ambient_use_glucose_colors") &&
@@ -441,6 +474,21 @@ static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, si
     if (doc["time_display_enabled"].is<bool>()) {
         cfg.time_display_enabled = doc["time_display_enabled"].as<bool>();
     }
+    if (doc["trend_display_enabled"].is<bool>()) {
+        cfg.trend_display_enabled = doc["trend_display_enabled"].as<bool>();
+    }
+    if (doc["tir_display_enabled"].is<bool>()) {
+        cfg.tir_display_enabled = doc["tir_display_enabled"].as<bool>();
+    }
+    if (doc["iob_display_enabled"].is<bool>()) {
+        cfg.iob_display_enabled = doc["iob_display_enabled"].as<bool>();
+    }
+    if (doc["alerts_display_enabled"].is<bool>()) {
+        cfg.alerts_display_enabled = doc["alerts_display_enabled"].as<bool>();
+    }
+    if (doc["alerts_replace_pet"].is<bool>()) {
+        cfg.alerts_replace_pet = doc["alerts_replace_pet"].as<bool>();
+    }
     if (doc["default_mode"].is<int>()) {
         cfg.default_mode = constrain(doc["default_mode"].as<int>(), 0, 3);
     }
@@ -449,6 +497,9 @@ static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, si
     }
     if (doc["ambient_use_glucose_colors"].is<bool>()) {
         cfg.ambient_use_glucose_colors = doc["ambient_use_glucose_colors"].as<bool>();
+    }
+    if (doc["ambient_show_tir"].is<bool>()) {
+        cfg.ambient_show_tir = doc["ambient_show_tir"].as<bool>();
     }
     if (doc["ambient_style"].is<int>()) {
         cfg.ambient_style = doc["ambient_style"].as<int>();
@@ -523,6 +574,18 @@ static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, si
     }
     if (doc["night_brightness"].is<int>()) {
         cfg.night_brightness = constrain(doc["night_brightness"].as<int>(), 1, 255);
+    }
+    if (doc["night_full_mute"].is<bool>()) {
+        cfg.night_full_mute = doc["night_full_mute"].as<bool>();
+    }
+    bool clock_name_changed = false;
+    if (doc["clock_name"].is<const char*>()) {
+        const char* name = doc["clock_name"] | "";   // validated above
+        if (strcmp(name, cfg.clock_name) != 0) {
+            strncpy(cfg.clock_name, name, sizeof(cfg.clock_name) - 1);
+            cfg.clock_name[sizeof(cfg.clock_name) - 1] = '\0';
+            clock_name_changed = true;
+        }
     }
 
     // Stale timeout
@@ -633,6 +696,7 @@ static void handle_post_config(AsyncWebServerRequest* request, uint8_t* data, si
 
     config_save();
     engine_rebuild_toggle_order();
+    if (clock_name_changed) clock_net_name_changed();
     if (libre_changed) libre_reset_session();
     if (libre_person_changed && cfg.data_source == 3) http_clear_readings();
     lock.unlock();
@@ -947,6 +1011,178 @@ static void handle_test_weather(AsyncWebServerRequest* request) {
 }
 
 // POST /api/test/weather-mock
+// POST /api/test/alert {"id": "suspended"|"warning"|"battery"|"reservoir"|"bg"|"sensor"|"set"|"all"}
+// Plays the pump alert(s) once on the display, then returns to the previous screen.
+static void handle_test_alert(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+    if (index != 0) return;
+
+    JsonDocument doc;
+    if (deserializeJson(doc, data, len)) {
+        request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+        return;
+    }
+    const char* id = doc["id"] | "";
+    uint8_t items[BRIDGE_MAX_WARNINGS];
+    uint8_t count = 0;
+    if (strcmp(id, "all") == 0) {
+        static const uint8_t ALL[] = {WARN_SUSPENDED, WARN_ALERT, WARN_BATTERY, WARN_RESERVOIR,
+                                      WARN_BG, WARN_SENSOR, WARN_SET};
+        static_assert(sizeof(ALL) <= BRIDGE_MAX_WARNINGS, "preview list size");
+        memcpy(items, ALL, sizeof(ALL));
+        count = sizeof(ALL);
+    } else {
+        uint8_t w = bridge_warning_from_id(id);
+        if (w == WARN_NONE) {
+            request->send(400, "application/json", "{\"error\":\"Unknown alert id\"}");
+            return;
+        }
+        items[count++] = w;
+    }
+    if (!engine_preview_alerts(items, count)) {
+        request->send(409, "application/json", "{\"error\":\"Low glucose is being shown\"}");
+        return;
+    }
+    JsonDocument resp;
+    resp["status"] = "ok";
+    resp["id"] = id;
+    resp["count"] = count;
+    String output;
+    serializeJson(resp, output);
+    request->send(200, "application/json", output);
+}
+
+// GET /api/clocks: this clock and the other SugarClocks it sees on the network.
+static void handle_get_clocks(AsyncWebServerRequest* request) {
+    JsonDocument doc;
+    JsonObject self = doc["self"].to<JsonObject>();
+    self["name"] = clock_net_name();
+    self["host"] = clock_net_local_host();
+    self["ip"] = wifi_get_ip();
+    self["id"] = clock_net_id();
+    self["version"] = SUGARCLOCK_VERSION;
+    doc["scanning"] = clock_net_scanning();
+    const unsigned long age = clock_net_last_scan_age_ms();
+    if (age == ULONG_MAX) doc["scan_age_s"] = nullptr;
+    else doc["scan_age_s"] = age / 1000UL;
+    JsonArray clocks = doc["clocks"].to<JsonArray>();
+    ClockPeer peers[CLOCK_NET_MAX_PEERS];
+    const int n = clock_net_peers(peers, CLOCK_NET_MAX_PEERS);
+    for (int i = 0; i < n; ++i) {
+        JsonObject c = clocks.add<JsonObject>();
+        c["name"] = peers[i].name;
+        c["host"] = peers[i].host;
+        c["ip"] = peers[i].ip;
+        c["version"] = peers[i].version;
+        c["id"] = peers[i].id;
+    }
+    String output;
+    serializeJson(doc, output);
+    request->send(200, "application/json", output);
+}
+
+// POST /api/clocks/copy {"targets": ["192.168.0.12", ...], "night": false, "source": false}
+// Sends this clock's display and alert settings to the chosen clocks; night
+// mode / Full Mute hours and the data source (URL + token) only when asked.
+// Runs on the clock-network task; poll GET /api/clocks/copy for the result.
+static void handle_copy_clocks(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+    if (index != 0 || len != total) {
+        if (index == 0) request->send(413, "application/json", "{\"error\":\"Request too large\"}");
+        return;
+    }
+    JsonDocument req;
+    if (deserializeJson(req, data, len)) {
+        request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+        return;
+    }
+    const char* targets[CLOCK_NET_MAX_PEERS];
+    int count = 0;
+    for (JsonVariantConst t : req["targets"].as<JsonArrayConst>()) {
+        if (count >= CLOCK_NET_MAX_PEERS || !t.is<const char*>()) {
+            request->send(400, "application/json", "{\"error\":\"Invalid target list\"}");
+            return;
+        }
+        targets[count++] = t.as<const char*>();
+    }
+    if (count == 0) {
+        request->send(400, "application/json", "{\"error\":\"Choose at least one clock\"}");
+        return;
+    }
+    const bool night = req["night"] | false;
+    const bool source = req["source"] | false;
+    const AppConfig& cfg = config_get();
+    if (source && cfg.data_source != 0) {
+        request->send(400, "application/json",
+                      "{\"error\":\"Only a Nightscout / custom URL data source can be copied\"}");
+        return;
+    }
+
+    JsonDocument all;
+    fill_config_doc(all);
+    JsonDocument out;
+    for (JsonPairConst kv : all.as<JsonObjectConst>()) {
+        const uint8_t group = clock_copy_group(kv.key().c_str());
+        if (group == CLOCK_COPY_DISPLAY || (night && group == CLOCK_COPY_NIGHT) ||
+            (source && group == CLOCK_COPY_SOURCE)) {
+            out[kv.key().c_str()] = kv.value();
+        }
+    }
+    if (source && cfg.auth_token[0]) out["auth_token"] = cfg.auth_token;
+    String body;
+    serializeJson(out, body);
+
+    if (!clock_net_copy_start(targets, count, body.c_str())) {
+        request->send(409, "application/json",
+                      "{\"error\":\"A copy is still running, or a clock is no longer on the list. Refresh and try again\"}");
+        return;
+    }
+    request->send(202, "application/json", "{\"status\":\"pending\"}");
+}
+
+// GET /api/clocks/copy: {"running": bool, "results": [{"ip","name","status","code"}]}
+static void handle_copy_clocks_status(AsyncWebServerRequest* request) {
+    ClockCopyResult results[CLOCK_NET_MAX_PEERS];
+    bool running = false;
+    const int n = clock_net_copy_results(results, CLOCK_NET_MAX_PEERS, &running);
+    JsonDocument doc;
+    doc["running"] = running;
+    JsonArray arr = doc["results"].to<JsonArray>();
+    for (int i = 0; i < n; ++i) {
+        JsonObject r = arr.add<JsonObject>();
+        r["ip"] = results[i].ip;
+        r["name"] = results[i].name;
+        r["status"] = results[i].state == CLOCK_COPY_OK ? "ok"
+                    : results[i].state == CLOCK_COPY_FAILED ? "failed" : "pending";
+        r["code"] = results[i].http_code;
+    }
+    String output;
+    serializeJson(doc, output);
+    request->send(200, "application/json", output);
+}
+
+// POST /api/alerts/clear: ask the bridge to clear its remembered pump reminders
+// (for a reminder that didn't clear by itself). Runs on the HTTP loop; poll
+// GET /api/alerts/clear for the result.
+static void handle_clear_alerts(AsyncWebServerRequest* request) {
+    if (!http_request_clear_reminders()) {
+        request->send(400, "application/json",
+                      "{\"error\":\"The data source is not a sugarclock-bridge /clock URL\"}");
+        return;
+    }
+    request->send(202, "application/json", "{\"status\":\"pending\"}");
+}
+
+// GET /api/alerts/clear: {"status":"idle"|"pending"|"cleared"|"nothing"|"error","code":<http>}
+static void handle_clear_alerts_status(AsyncWebServerRequest* request) {
+    const int code = http_clear_reminders_status();
+    JsonDocument resp;
+    resp["status"] = code == 0 ? "idle" : code == 1 ? "pending" : code == 200 ? "cleared"
+                   : code == 404 ? "nothing" : "error";
+    resp["code"] = code;
+    String output;
+    serializeJson(resp, output);
+    request->send(200, "application/json", output);
+}
+
 static void handle_test_weather_mock(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
     if (index != 0) return;
 
@@ -1312,6 +1548,28 @@ void webserver_init() {
     server.on("/api/factory-reset", HTTP_POST, [](AsyncWebServerRequest* r) { handle_factory_reset(r); });
     server.on("/api/test/weather", HTTP_POST, [](AsyncWebServerRequest* r) { handle_test_weather(r); });
     server.on("/api/test/glucose", HTTP_POST, [](AsyncWebServerRequest* r) { handle_test_glucose(r); });
+
+    // Specific paths first: a handler for "/api/clocks" also matches "/api/clocks/…".
+    server.on("/api/clocks/scan", HTTP_POST, [](AsyncWebServerRequest* r) {
+        clock_net_rescan();
+        r->send(202, "application/json", "{\"status\":\"scanning\"}");
+    });
+    server.on("/api/clocks/copy", HTTP_GET, [](AsyncWebServerRequest* r) { handle_copy_clocks_status(r); });
+    server.on("/api/clocks/copy", HTTP_POST,
+        [](AsyncWebServerRequest* request) {},
+        NULL,
+        handle_copy_clocks
+    );
+    server.on("/api/clocks", HTTP_GET, [](AsyncWebServerRequest* r) { handle_get_clocks(r); });
+    server.on("/api/alerts/clear", HTTP_POST, [](AsyncWebServerRequest* r) { handle_clear_alerts(r); });
+    server.on("/api/alerts/clear", HTTP_GET, [](AsyncWebServerRequest* r) { handle_clear_alerts_status(r); });
+
+    // POST /api/test/alert with body
+    server.on("/api/test/alert", HTTP_POST,
+        [](AsyncWebServerRequest* request) {},
+        NULL,
+        handle_test_alert
+    );
 
     // POST /api/test/weather-mock with body
     server.on("/api/test/weather-mock", HTTP_POST,

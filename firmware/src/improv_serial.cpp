@@ -1,4 +1,5 @@
 #include "improv_serial.h"
+#include "clock_net.h"
 #include "config_manager.h"
 #include "wifi_manager.h"
 #include <WiFi.h>
@@ -189,7 +190,7 @@ static void handle_wifi_settings(const uint8_t* data, uint8_t len) {
 
         // Restart AP mode
         WiFi.mode(WIFI_AP);
-        WiFi.softAP("SugarClock-Setup");
+        WiFi.softAP(clock_net_setup_ssid());
     }
 }
 

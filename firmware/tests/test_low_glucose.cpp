@@ -7,6 +7,7 @@
 #pragma GCC diagnostic warning "-Wformat-truncation"
 #endif
 #include "../src/glucose_engine.cpp"
+#include "../src/bridge_alerts.cpp"
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
@@ -31,10 +32,15 @@ unsigned long http_time_since_last_reading() { return age_ms; }
 int http_get_failure_count() { return failures; }
 bool http_has_ever_received() { return ever_received; }
 int http_get_delta() { return -5; }
+const TirStats& http_get_tir() { static TirStats t = {-1, -1, -1, false}; return t; }
+static BridgeExtras extras = {};
+const BridgeExtras& http_get_extras() { return extras; }
 int http_get_history(GlucoseHistoryEntry*, int) { return 0; }
 bool wifi_is_connected() { return connected; }
 bool wifi_is_ap_mode() { return ap_mode; }
 const char* wifi_get_ip() { return "192.0.2.1"; }
+static const char* local_host_stub = "";
+const char* clock_net_local_host() { return local_host_stub; }
 const char* wifi_get_ap_ip() { return "192.0.2.2"; }
 const char* wifi_get_ap_ssid() { return "SugarClock"; }
 int wifi_ap_station_count() { return 0; }
@@ -75,7 +81,8 @@ long countdown_get_remaining_sec() { return 0; }
 bool weather_has_data() { return false; }
 const WeatherReading& weather_get_reading() { static WeatherReading wx = {}; return wx; }
 void weather_set_pre_fetch_callback(WeatherPreFetchCallback) {}
-void display_set_brightness(uint8_t) {}
+static uint8_t set_level = 0, stale_level = 0;
+void display_set_brightness(uint8_t level) { set_level = level; }
 void display_set_transition_level(uint8_t level) { frame_level = level; }
 void display_clear() {}
 void display_show() {}
@@ -83,6 +90,8 @@ void display_scroll_reset() {}
 bool display_scroll_text(const char*, int, uint16_t, unsigned int) { return false; }
 void display_draw_text(const char*, int, int, uint16_t) {}
 void display_draw_pixel(int, int, uint16_t) {}
+void display_draw_centered_text(const char*, int, uint16_t) {}
+int display_text_width(const char* t) { return t ? (int)strlen(t) * 6 : 0; }
 void display_draw_time(int, int, bool, bool, uint16_t) {}
 void display_draw_trend(int, int, int, uint16_t) {}
 void display_draw_bar(int, int, uint16_t) {}
@@ -94,7 +103,7 @@ uint16_t display_color(uint8_t r, uint8_t g, uint8_t b) {
 }
 void display_draw_glucose_delta(int, int, uint16_t, bool) {}
 void glucose_render_delta_flash(int, uint16_t, bool) { ++delta_frames; }
-void glucose_render_stale(const GlucoseReading&, const AppConfig&, uint8_t) {}
+void glucose_render_stale(const GlucoseReading&, const AppConfig&, uint8_t level) { stale_level = level; }
 
 static void tick(unsigned long elapsed = 50) { now_ms += elapsed; engine_loop(); }
 static void settle() { tick(); tick(600); tick(600); }
@@ -249,5 +258,18 @@ int main() {
     notification = false; cfg.auto_cycle_enabled = false;
     engine_force_state(STATE_WEATHER_DISPLAY); settle();
     assert(engine_get_state() == STATE_WEATHER_DISPLAY);
+
+    // Stale screens stay visible at low brightness instead of looking switched off.
+    engine_clear_force(); reading.force_mode = -1;
+    engine_set_default_mode(STATE_GLUCOSE_DISPLAY); engine_rebuild_toggle_order();
+    cfg.brightness = 6; reading.glucose = 150; failures = 0;
+    age_ms = 5UL * 60000; settle();
+    assert(engine_get_state() == STATE_GLUCOSE_DISPLAY && set_level == 6);   // fresh: as configured
+    age_ms = 15UL * 60000; settle();
+    assert(engine_get_state() == STATE_GLUCOSE_DISPLAY && set_level == 20);  // warning: 6/3 floored
+    age_ms = 25UL * 60000; settle();
+    assert(engine_get_state() == STATE_STALE_WARNING && stale_level == 20);  // stale grey: floored
+    cfg.brightness = 120; settle();
+    assert(stale_level == 120);                                             // above the floor: unchanged
     return 0;
 }

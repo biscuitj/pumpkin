@@ -20,6 +20,7 @@
 #include "net_check.h"
 #include "ota_manager.h"
 #include "fleet_manager.h"
+#include "clock_net.h"
 
 #ifndef SUGARCLOCK_VERSION
 #error "SUGARCLOCK_VERSION must be injected from the root VERSION file"
@@ -66,8 +67,11 @@ void setup() {
     // 5. Init buttons
     buttons_init();
 
-    // 6. Init WiFi
+    // 6. Init WiFi (clock identity first: it names the setup network and the
+    //    DHCP hostname, both of which must be set before the radio starts)
+    clock_net_init();
     wifi_init();
+    clock_net_start();  // mDNS name + other clocks, on its own task once online
 
     // 7. Init time engine
     time_init();
@@ -123,6 +127,15 @@ void loop() {
 
     // 1. WiFi management
     wifi_loop();
+
+    // 1a. Right after a setup (new Wi-Fi joined from the setup page), scroll
+    //     where the clock can now be reached, once: "visit keuken.local or <ip>".
+    static bool address_announced = false;
+    if (!address_announced && wifi_trial_get_state() == WIFI_TRIAL_CONNECTED &&
+        wifi_is_connected() && !wifi_is_ap_mode() && clock_net_local_host()[0]) {
+        address_announced = true;
+        engine_show_connection_info();
+    }
 
     // 1b. Improv Wi-Fi serial (for ESP Web Tools credential input)
     improv_loop();

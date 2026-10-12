@@ -22,6 +22,8 @@ static uint16_t screen[8][32];
 unsigned long millis() { return now_ms; }
 AppConfig& config_get() { return cfg; }
 const GlucoseReading& http_get_reading() { return reading; }
+static TirStats tir = {-1, -1, -1, false};
+const TirStats& http_get_tir() { return tir; }
 bool http_has_ever_received() { return ever_received; }
 unsigned long http_time_since_last_reading() { return reading_age; }
 int http_get_failure_count() { return failures; }
@@ -126,6 +128,47 @@ int main(int argc, char**) {
         assert(pixel_count == 0 && strcmp(text, "---") == 0);
         ever_received = true; cfg.data_source = 2;
         cfg.ambient_seasonal = true; hour = 10;
+    }
+    // Time in range replaces the LOW / OK / HIGH word (text style only), the pet
+    // itself is untouched, and without TIR data the word stays.
+    {
+        cfg.data_source = 2; cfg.ambient_seasonal = false; hour = 10; now_ms = 3000;
+        cfg.color_in_range = 0x00ff00; cfg.color_high = 0xffaa00; cfg.color_urgent_low = 0xff0000;
+        reading.valid = true; reading.glucose = 120;
+        for (int id = 0; id < COMPANION_COUNT; ++id) {
+            cfg.ambient_character = id;
+            for (int style = 0; style < 3; ++style) {
+                cfg.ambient_style = style;
+                uint16_t words[8][32], with_tir[8][32];
+                cfg.ambient_show_tir = false; tir = {78, 4, 18, true};
+                ambient_fish_init(); ambient_fish_render(); memcpy(words, screen, sizeof(screen));
+                cfg.ambient_show_tir = true;
+                ambient_fish_init(); ambient_fish_render(); memcpy(with_tir, screen, sizeof(screen));
+                bool right_differs = false;
+                for (int y = 0; y < 8; ++y) for (int x = 0; x < 32; ++x) {
+                    if (x < 14) assert(words[y][x] == with_tir[y][x]);
+                    else if (words[y][x] != with_tir[y][x]) right_differs = true;
+                }
+                assert(right_differs == (style == COMPANION_TEXT));
+                if (style == COMPANION_TEXT) {
+                    // "78%" in the goal colour, centred in columns 15-31, rows 2-6.
+                    uint16_t green = display_color(0, 0xff, 0);
+                    int lit = 0;
+                    for (int y = 0; y < 8; ++y) for (int x = 14; x < 32; ++x) if (with_tir[y][x]) {
+                        assert(with_tir[y][x] == green && y >= 2 && y <= 6 && x >= 15);
+                        ++lit;
+                    }
+                    assert(lit > 15);
+                    tir = {45, 30, 25, true}; ambient_fish_init(); ambient_fish_render();
+                    for (int y = 0; y < 8; ++y) for (int x = 15; x < 32; ++x)
+                        if (screen[y][x]) assert(screen[y][x] == display_color(0xff, 0, 0));
+                }
+                tir = {-1, -1, -1, false};
+                ambient_fish_init(); ambient_fish_render();
+                assert(memcmp(words, screen, sizeof(screen)) == 0);
+            }
+        }
+        cfg.ambient_show_tir = false; cfg.ambient_seasonal = true;
     }
     for (int style=0; style<3; ++style) for (int id=0; id<COMPANION_COUNT; ++id) for (int range=0; range<3; ++range) {
         char initial[8][32]; companion_frame(id,0,false,false,initial,style,range);

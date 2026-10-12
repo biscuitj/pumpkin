@@ -1,4 +1,6 @@
 #include "glucose_engine.h"
+#include "bridge_alerts.h"
+#include "clock_net.h"
 #include "glucose_render.h"
 #include "hardware_pins.h"
 #include "display.h"
@@ -19,10 +21,15 @@
 #include "net_check.h"
 #include "sensors.h"
 #include <Arduino.h>
+#include <stdio.h>
+#include <string.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
 #define STALE_WARNING_MS   (10UL * 60 * 1000)   // 10 minutes
+// Stale screens draw grey or dim to 1/3. At a low auto/night brightness that is
+// all but invisible and looks like the clock switched off, so keep a floor.
+#define STALE_MIN_BRIGHTNESS 20
 #define FAILURE_STALE_COUNT    5
 #define FAILURE_NODATA_COUNT   10
 
@@ -127,21 +134,62 @@ static void on_weather_pre_fetch() {
 }
 
 // Data-driven toggle order
-static DisplayState toggle_order[12];
+static DisplayState toggle_order[16];
 static int toggle_count = 0;
 static int toggle_index = 0;
 
 // Auto-cycle timer
 static unsigned long last_cycle_ms = 0;
 
+// Pump alerts screen (bridge). The screen plays its alerts one after another,
+// each for a fixed time; the rotation moves on when the last one is done instead
+// of after the normal cycle interval. It tracks the alert being shown and the
+// ones already played by type, not by position, so an alert that clears (and
+// shifts the list) never makes it skip another one.
+static uint8_t alert_current = WARN_NONE;
+static uint16_t alerts_played = 0;   // bit per BridgeWarning
+static_assert(WARN_COUNT <= 16, "alerts_played needs a bit per warning");
+static unsigned long alert_item_started_ms = 0;
+static unsigned long alerts_last_render_ms = 0;
+static bool alerts_sequence_done = false;
+static bool alerts_restart = false;
+// Web UI preview: requested from the web server task, consumed by the engine task.
+static volatile bool alert_preview_pending = false;
+static uint8_t alert_preview_pending_items[BRIDGE_MAX_WARNINGS];
+static uint8_t alert_preview_pending_count = 0;
+static bool alert_preview_active = false;
+static uint8_t alert_preview_items[BRIDGE_MAX_WARNINGS];
+static uint8_t alert_preview_count = 0;
+
+// Bridge extras are only trusted while the glucose data itself is fresh.
+static bool bridge_data_fresh() {
+    const AppConfig& cfg = config_get();
+    if (cfg.data_source == 2) return false;  // demo mode has no pump data
+    const unsigned long stale_ms = (unsigned long)cfg.stale_timeout_min * 60000UL;
+    return http_has_ever_received() && http_time_since_last_reading() < stale_ms &&
+           http_get_failure_count() < FAILURE_STALE_COUNT;
+}
+
+bool engine_bridge_alerts_active() {
+    return config_get().alerts_display_enabled && http_get_extras().warning_count > 0 &&
+           bridge_data_fresh();
+}
+
 void engine_rebuild_toggle_order() {
     AppConfig& cfg = config_get();
     toggle_count = 0;
     toggle_order[toggle_count++] = STATE_GLUCOSE_DISPLAY;
-    toggle_order[toggle_count++] = STATE_TREND_DISPLAY;
+    if (cfg.trend_display_enabled) toggle_order[toggle_count++] = STATE_TREND_DISPLAY;
+    if (cfg.tir_display_enabled) toggle_order[toggle_count++] = STATE_TIR_DISPLAY;
+    if (cfg.iob_display_enabled) toggle_order[toggle_count++] = STATE_IOB_DISPLAY;
     if (cfg.time_display_enabled) toggle_order[toggle_count++] = STATE_TIME_DISPLAY;
     if (cfg.weather_enabled) toggle_order[toggle_count++] = STATE_WEATHER_DISPLAY;
-    if (cfg.ambient_enabled) toggle_order[toggle_count++] = STATE_AMBIENT_CREATURE_DISPLAY;
+    // Pump alerts follow the pet screen (or sit where it would be), or take its
+    // slot when "alerts replace pet" is on. Only present while alerts are active.
+    const bool alerts = engine_bridge_alerts_active();
+    if (cfg.ambient_enabled && !(alerts && cfg.alerts_replace_pet))
+        toggle_order[toggle_count++] = STATE_AMBIENT_CREATURE_DISPLAY;
+    if (alerts) toggle_order[toggle_count++] = STATE_ALERTS_DISPLAY;
     if (cfg.timer_enabled) toggle_order[toggle_count++] = STATE_TIMER_DISPLAY;
     if (cfg.stopwatch_enabled) toggle_order[toggle_count++] = STATE_STOPWATCH_DISPLAY;
     if (cfg.sysmon_enabled && sysmon_has_data()) toggle_order[toggle_count++] = STATE_SYSMON_DISPLAY;
@@ -153,6 +201,14 @@ void engine_rebuild_toggle_order() {
             toggle_index = i;
             return;
         }
+    }
+    // The alerts screen (or the pet it replaced) left the rotation: continue with
+    // whatever now occupies its slot, i.e. the next screen, instead of jumping home.
+    if (user_mode == STATE_ALERTS_DISPLAY || user_mode == STATE_AMBIENT_CREATURE_DISPLAY) {
+        if (toggle_index >= toggle_count) toggle_index = 0;
+        user_mode = toggle_order[toggle_index];
+        last_cycle_ms = millis();
+        return;
     }
     toggle_index = 0;
     user_mode = toggle_order[0];
@@ -205,11 +261,17 @@ static bool is_night_mode() {
     }
 }
 
+// Full Mute: night mode with a fully black screen and a silent buzzer (e.g. a
+// clock at school outside school hours). Nothing wakes it, not even an urgent low.
+static bool is_full_mute() {
+    return config_get().night_full_mute && is_night_mode();
+}
+
 // Get effective brightness considering night mode
 static uint8_t effective_brightness() {
     AppConfig& cfg = config_get();
     if (is_night_mode()) {
-        return cfg.night_brightness;
+        return cfg.night_full_mute ? 0 : cfg.night_brightness;
     }
     if (cfg.auto_brightness) {
         return sensors_get_auto_brightness();
@@ -217,10 +279,16 @@ static uint8_t effective_brightness() {
     return cfg.brightness;
 }
 
+static uint8_t stale_brightness(uint8_t level) {
+    if (is_full_mute()) return 0;  // muted means black, stale or not
+    return level < STALE_MIN_BRIGHTNESS ? STALE_MIN_BRIGHTNESS : level;
+}
+
 // Handle buzzer alerts
 static void check_alerts() {
     AppConfig& cfg = config_get();
     if (!cfg.alert_enabled) return;
+    if (is_full_mute()) return;
 
     const GlucoseReading& reading = http_get_reading();
     if (!reading.valid) return;
@@ -267,6 +335,16 @@ void engine_snooze_alerts() {
     AppConfig& cfg = config_get();
     alert_snooze_until_ms = millis() + (cfg.alert_snooze_min * 60000UL);
     Serial.printf("[ENGINE] Alerts snoozed for %d minutes\n", cfg.alert_snooze_min);
+}
+
+bool engine_preview_alerts(const uint8_t* warnings, uint8_t count) {
+    if (!warnings || count == 0 || engine_low_glucose_lock_active()) return false;
+    if (count > BRIDGE_MAX_WARNINGS) count = BRIDGE_MAX_WARNINGS;
+    if (alert_preview_pending) return true;  // one request at a time; the engine copies it
+    memcpy(alert_preview_pending_items, warnings, count);
+    alert_preview_pending_count = count;
+    alert_preview_pending = true;
+    return true;
 }
 
 void engine_init() {
@@ -316,6 +394,9 @@ static DisplayState evaluate_state() {
     if (millis() - boot_start_ms < 3000) {
         return STATE_BOOT;
     }
+
+    // Web UI alert preview: shown once, whatever the data or rotation state.
+    if (alert_preview_active) return STATE_ALERTS_DISPLAY;
 
     // Connection information is a user-requested overlay. Active
     // notifications and fresh urgent glucose readings still take priority.
@@ -402,6 +483,11 @@ static DisplayState evaluate_state() {
         return STATE_MESSAGE_DISPLAY;
     }
 
+    // The alerts cleared but the rotation hasn't been rebuilt yet (<= 5 s).
+    if (user_mode == STATE_ALERTS_DISPLAY && !engine_bridge_alerts_active()) {
+        return STATE_GLUCOSE_DISPLAY;
+    }
+
     if (user_mode == STATE_TIME_DISPLAY && cfg.date_on_time_screen &&
         time_is_available() && ((millis() / 5000) % 2 == 1)) {
         return STATE_DATE_DISPLAY;
@@ -457,7 +543,9 @@ static void render_state(DisplayState state) {
             }
 
             if (stale_warning) {
-                display_set_brightness(effective_brightness() / 3);
+                display_set_brightness(stale_brightness(effective_brightness() / 3));
+            } else if (is_stale) {
+                display_set_brightness(stale_brightness(effective_brightness()));
             } else {
                 display_set_brightness(effective_brightness());
             }
@@ -490,6 +578,17 @@ static void render_state(DisplayState state) {
 
             if (reading.trend != TREND_UNKNOWN) {
                 display_draw_trend(reading.trend, arrow_x, 0, color);
+            }
+
+            // Sport mode (temp target from the bridge): 2 px bars on both sides
+            // in the value colour. Not on old data: the "!" owns the right edge then.
+            if (!is_stale && !stale_warning && http_get_extras().temp_target) {
+                for (int y = 0; y < MATRIX_HEIGHT; ++y) {
+                    display_draw_pixel(0, y, color);
+                    display_draw_pixel(1, y, color);
+                    display_draw_pixel(MATRIX_WIDTH - 2, y, color);
+                    display_draw_pixel(MATRIX_WIDTH - 1, y, color);
+                }
             }
 
             // Stale warning indicator
@@ -687,6 +786,108 @@ static void render_state(DisplayState state) {
             break;
         }
 
+        case STATE_IOB_DISPLAY: {
+            display_set_brightness(effective_brightness());
+            display_clear();
+            const BridgeExtras& extras = http_get_extras();
+            char buf[8];
+            uint16_t color;
+            if (extras.iob_valid && bridge_data_fresh()) {
+                // Two decimals below 10 U, one above, so it always fits in 5 glyphs.
+                snprintf(buf, sizeof(buf), extras.iob < 9.995f ? "%.2fU" : "%.1fU", extras.iob);
+                color = display_color(0x26, 0xC6, 0xDA);
+            } else {
+                snprintf(buf, sizeof(buf), "--U");
+                color = color_from_uint32(cfg.color_stale);
+            }
+            display_draw_centered_text(buf, 0, color);
+            display_show();
+            break;
+        }
+
+        case STATE_ALERTS_DISPLAY: {
+            display_set_brightness(effective_brightness());
+            const unsigned long now = millis();
+            // (Re)entering the screen always starts with the first alert.
+            if (alerts_restart || now - alerts_last_render_ms > 1000) {
+                alerts_restart = false;
+                alert_current = WARN_NONE;
+                alerts_played = 0;
+                alerts_sequence_done = false;
+            }
+            alerts_last_render_ms = now;
+
+            const BridgeExtras& extras = http_get_extras();
+            const uint8_t* items = alert_preview_active ? alert_preview_items : extras.warnings;
+            const uint8_t count = alert_preview_active ? alert_preview_count : extras.warning_count;
+
+            // The alert on screen cleared (new data): drop it, the next one starts fresh.
+            bool still_there = false;
+            for (uint8_t i = 0; i < count; ++i) still_there |= items[i] == alert_current;
+            if (!still_there) alert_current = WARN_NONE;
+            // Next: the first alert in priority order that hasn't played yet.
+            if (alert_current == WARN_NONE) {
+                for (uint8_t i = 0; i < count; ++i) {
+                    if (items[i] < WARN_COUNT && !(alerts_played & (1u << items[i]))) {
+                        alert_current = items[i];
+                        alert_item_started_ms = now;
+                        break;
+                    }
+                }
+                if (alert_current == WARN_NONE) alerts_sequence_done = true;
+            }
+
+            display_clear();
+            if (alert_current != WARN_NONE) {
+                bridge_warning_draw_icon(alert_current);
+                if (now - alert_item_started_ms >= BRIDGE_WARNING_ICON_MS) {
+                    alerts_played |= (uint16_t)(1u << alert_current);
+                    alert_current = WARN_NONE;
+                    bool more = false;
+                    for (uint8_t i = 0; i < count; ++i)
+                        more |= items[i] < WARN_COUNT && !(alerts_played & (1u << items[i]));
+                    if (!more) alerts_sequence_done = true;
+                }
+            }
+            display_show();
+
+            if (alerts_sequence_done) {
+                if (alert_preview_active) {
+                    // Preview played once: back to the screen it interrupted.
+                    alert_preview_active = false;
+                    alerts_sequence_done = false;
+                } else if (!(cfg.auto_cycle_enabled && toggle_count > 1)) {
+                    // No auto-cycle to move on: keep looping the alerts.
+                    alerts_restart = true;
+                }
+            }
+            break;
+        }
+
+        case STATE_TIR_DISPLAY: {
+            display_set_brightness(effective_brightness());
+            display_clear();
+            const TirStats& tir = http_get_tir();
+            char buf[8];
+            uint16_t color;
+            if (tir.valid) {
+                // Value colour: >=70% is the usual consensus goal for time in range.
+                uint32_t c = tir.in_range >= 70 ? cfg.color_in_range
+                           : tir.in_range >= 50 ? cfg.color_high
+                                                : cfg.color_urgent_low;
+                color = color_from_uint32(c);
+                snprintf(buf, sizeof(buf), "%d%%", tir.in_range);
+            } else {
+                color = color_from_uint32(cfg.color_stale);
+                snprintf(buf, sizeof(buf), "--%%");
+            }
+            // Right-aligned; drop the trailing glyph spacing so it ends on the last column.
+            int width = display_text_width(buf) - 1;
+            display_draw_text(buf, MATRIX_WIDTH - width, 0, color);
+            display_show();
+            break;
+        }
+
         case STATE_TREND_DISPLAY: {
             display_set_brightness(effective_brightness());
             display_clear();
@@ -764,7 +965,7 @@ static void render_state(DisplayState state) {
         }
 
         case STATE_STALE_WARNING: {
-            glucose_render_stale(http_get_reading(), cfg, effective_brightness());
+            glucose_render_stale(http_get_reading(), cfg, stale_brightness(effective_brightness()));
             break;
         }
 
@@ -803,7 +1004,12 @@ static void render_state(DisplayState state) {
                         snprintf(trial_line, sizeof(trial_line), "Authenticating %s", wifi_trial_ssid());
                         break;
                     case WIFI_TRIAL_CONNECTED:
-                        snprintf(trial_line, sizeof(trial_line), "Connected! IP %s", wifi_get_ip());
+                        if (clock_net_local_host()[0]) {
+                            snprintf(trial_line, sizeof(trial_line), "Connected! Visit %s or %s",
+                                     clock_net_local_host(), wifi_get_ip());
+                        } else {
+                            snprintf(trial_line, sizeof(trial_line), "Connected! IP %s", wifi_get_ip());
+                        }
                         break;
                     case WIFI_TRIAL_FAILED_AUTH:
                         snprintf(trial_line, sizeof(trial_line), "Credentials rejected. Check username and password");
@@ -850,12 +1056,17 @@ static void render_state(DisplayState state) {
 
         case STATE_NO_CFG: {
             display_clear();
-            char setup_msg[64];
+            char setup_msg[96];
             if (wifi_is_connected()) {
                 // WiFi connected but no glucose source — show device IP
                 IPAddress ip = WiFi.localIP();
-                snprintf(setup_msg, sizeof(setup_msg), "Visit %d.%d.%d.%d to setup",
-                         ip[0], ip[1], ip[2], ip[3]);
+                if (clock_net_local_host()[0]) {
+                    snprintf(setup_msg, sizeof(setup_msg), "Visit %s or %d.%d.%d.%d to setup",
+                             clock_net_local_host(), ip[0], ip[1], ip[2], ip[3]);
+                } else {
+                    snprintf(setup_msg, sizeof(setup_msg), "Visit %d.%d.%d.%d to setup",
+                             ip[0], ip[1], ip[2], ip[3]);
+                }
             } else {
                 // No WiFi — AP mode, show AP address
                 snprintf(setup_msg, sizeof(setup_msg), "Setup: visit 192.168.4.1");
@@ -894,13 +1105,32 @@ void engine_loop() {
     if (!low_glucose_active && !connection_info_visible && cfg.auto_cycle_enabled && toggle_count > 1) {
         unsigned long cycle_interval_ms = (unsigned long)cfg.auto_cycle_sec * 1000UL;
         if (last_cycle_ms == 0) last_cycle_ms = millis();
-        if (millis() - last_cycle_ms >= cycle_interval_ms) {
+        // The alerts screen sets its own length: it moves on once every alert has
+        // played (or straight away if they cleared), not after the cycle interval.
+        bool cycle_now;
+        if (user_mode == STATE_ALERTS_DISPLAY && !alert_preview_active) {
+            cycle_now = alerts_sequence_done || !engine_bridge_alerts_active();
+        } else {
+            cycle_now = millis() - last_cycle_ms >= cycle_interval_ms;
+        }
+        if (cycle_now) {
+            alerts_sequence_done = false;
             last_cycle_ms = millis();
             toggle_index = (toggle_index + 1) % toggle_count;
             user_mode = toggle_order[toggle_index];
             Serial.printf("[ENGINE] Auto-cycle to %s\n", engine_state_name(user_mode));
         }
     }
+
+    // Start a preview requested from the web UI (copied here, on the engine task).
+    if (alert_preview_pending) {
+        alert_preview_count = alert_preview_pending_count;
+        memcpy(alert_preview_items, alert_preview_pending_items, alert_preview_count);
+        alert_preview_pending = false;
+        alert_preview_active = alert_preview_count > 0 && !low_glucose_active;
+        alerts_restart = true;
+    }
+    if (low_glucose_active) alert_preview_active = false;
 
     DisplayState desired_state = evaluate_state();
     unsigned long now = millis();
@@ -1009,6 +1239,9 @@ const char* engine_state_name(DisplayState state) {
         case STATE_DATE_DISPLAY:      return "DATE";
         case STATE_CONNECTION_INFO_DISPLAY: return "CONNECTION_INFO";
         case STATE_AMBIENT_CREATURE_DISPLAY: return "AMBIENT_CREATURE";
+        case STATE_TIR_DISPLAY:       return "TIR";
+        case STATE_IOB_DISPLAY:       return "IOB";
+        case STATE_ALERTS_DISPLAY:    return "ALERTS";
         default:                      return "UNKNOWN";
     }
 }
@@ -1066,8 +1299,14 @@ void engine_reset_auto_cycle() {
 void engine_show_connection_info() {
     if (engine_low_glucose_lock_active()) return;
     if (wifi_is_connected() && strcmp(wifi_get_ip(), "0.0.0.0") != 0) {
-        snprintf(connection_info_buf, sizeof(connection_info_buf),
-                 "To connect, visit %s", wifi_get_ip());
+        const char* host = clock_net_local_host();
+        if (host[0]) {
+            snprintf(connection_info_buf, sizeof(connection_info_buf),
+                     "To connect, visit %s or %s", host, wifi_get_ip());
+        } else {
+            snprintf(connection_info_buf, sizeof(connection_info_buf),
+                     "To connect, visit %s", wifi_get_ip());
+        }
     } else if (wifi_is_ap_mode()) {
         snprintf(connection_info_buf, sizeof(connection_info_buf),
                  "To set up SugarClock, visit %s", wifi_get_ap_ip());

@@ -57,8 +57,14 @@ struct AppConfig {
 
     // Time
     char timezone[64];         // POSIX timezone string
+    char clock_name[33];       // display name on the local network; "" = default (sugarclock-xxxx)
     bool use_24h;              // default false
     bool time_display_enabled; // include the time screen in navigation/auto-cycle
+    bool trend_display_enabled;  // include the trend (arrow + delta) screen
+    bool tir_display_enabled;    // include the time-in-range screen
+    bool iob_display_enabled;    // include the active insulin (bridge) screen
+    bool alerts_display_enabled; // include the pump alerts (bridge) screen while alerts are active
+    bool alerts_replace_pet;     // pump alerts take the pet screen's slot instead of following it
 
     // Display mode
     int default_mode;          // 0=glucose, 1=time, 2=weather, 3=pixel companion
@@ -68,6 +74,7 @@ struct AppConfig {
     int ambient_character;     // 0=Pip, 1=Boo, 2=Mochi, 3=Sprout, 4=Pebble, 5=Inky, 6=Maple; default Pip
     int ambient_style;         // 0=companion + text, 1=companion + icon, 2=centered companion
     bool ambient_use_glucose_colors; // use configured glucose colors for status, default false
+    bool ambient_show_tir;     // text style: show 24h time in range (bridge) instead of LOW/OK/HIGH
     bool ambient_seasonal;     // Halloween/New Year surprises, default true
 
     // Alerts (buzzer on PIN 15)
@@ -93,6 +100,7 @@ struct AppConfig {
     int night_start_hour;      // default 22 (10 PM)
     int night_end_hour;        // default 7 (7 AM)
     uint8_t night_brightness;  // default 10
+    bool night_full_mute;      // night hours: black screen + silent buzzer, nothing wakes it (default false)
 
     // Data freshness
     int stale_timeout_min;     // default 20 minutes

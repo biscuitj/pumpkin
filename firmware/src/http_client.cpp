@@ -7,6 +7,8 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Arduino.h>
+#include <time.h>
+#include "bridge_alerts.h"
 
 // Dexcom Share constants
 #define DEXCOM_APP_ID "d89443d2-327c-4a6f-89e5-496bbb0317db"
@@ -19,14 +21,23 @@
 #define DEXCOM_SESSION_LIFETIME_MS (3600000UL) // re-auth every hour
 
 static GlucoseReading current_reading;
+static TirStats tir_stats = {-1, -1, -1, false};
+static BridgeExtras bridge_extras = {};
+static_assert(sizeof(BridgeExtras::warnings) == BRIDGE_MAX_WARNINGS, "warning buffer size");
 static int failure_count = 0;
 static int last_response_code = 0;
 static char last_response_body[512] = "";
 static bool ever_received = false;
 static unsigned long last_poll_ms = 0;
+// Poll delay requested by a bridge endpoint ("next_poll_sec"); 0 = use the
+// configured interval. Cleared on any failure so errors fall back to normal.
+static unsigned long next_poll_override_ms = 0;
 // Same wraparound/pre-boot semantics as GlucoseReading::received_at_ms.
 // ever_received distinguishes an empty history; timestamp zero is valid.
 static unsigned long last_success_ms = 0;
+// Bridge reminder clear (web UI): requested from the web task, run by http_loop().
+static volatile bool clear_reminders_requested = false;
+static volatile int clear_reminders_status = 0;
 static volatile bool http_paused = false;
 
 // Delta tracking
@@ -339,8 +350,13 @@ static void generic_fetch() {
     WiFiClientSecure client;
     client.setInsecure();
     client.setTimeout(10);
+    // The fetch blocks the main loop, which feeds the 30 s task watchdog. The
+    // TLS handshake timeout defaults to 120 s, so a stalled handshake on flaky
+    // Wi-Fi would reset the clock. Keep connect + handshake + read well under 30 s.
+    client.setHandshakeTimeout(8);
 
     HTTPClient http;
+    next_poll_override_ms = 0;
     Serial.printf("[HTTP] Polling: %s\n", cfg.server_url);
 
     if (!http.begin(client, cfg.server_url)) {
@@ -350,6 +366,7 @@ static void generic_fetch() {
         return;
     }
 
+    http.setConnectTimeout(5000);
     http.setTimeout(10000);
     http.addHeader("Accept", "application/json");
 
@@ -374,16 +391,70 @@ static void generic_fetch() {
             Serial.printf("[HTTP] JSON parse error: %s\n", err.c_str());
             failure_count++;
         } else {
-            current_reading.glucose = doc["glucose"] | 0;
-            current_reading.timestamp = doc["timestamp"] | 0UL;
-            current_reading.received_at_ms = millis();
-            current_reading.force_mode = doc["force_mode"] | -1;
-            current_reading.valid = (current_reading.glucose > 0);
+            // Nightscout /api/v1/entries[.json|/sgv.json|/current.json] returns
+            // an array of entries: [{"sgv":224,"direction":"SingleDown","date":<ms>}].
+            // The custom-URL format is a single object: {"glucose","trend","timestamp"}.
+            JsonVariantConst src = doc.as<JsonVariantConst>();
+            if (src.is<JsonArrayConst>()) src = src[0];
+            const bool nightscout = src["sgv"].is<int>();
 
-            const char* trend_str = doc["trend"] | "Unknown";
+            const char* trend_str;
+            if (nightscout) {
+                current_reading.glucose = src["sgv"] | 0;
+                unsigned long long date_ms = src["date"] | 0ULL;
+                current_reading.timestamp = (unsigned long)(date_ms / 1000ULL);
+                trend_str = src["direction"] | "Unknown";
+                current_reading.force_mode = -1;
+            } else {
+                current_reading.glucose = src["glucose"] | 0;
+                current_reading.timestamp = src["timestamp"] | 0UL;
+                current_reading.force_mode = src["force_mode"] | -1;
+                trend_str = src["trend"] | "Unknown";
+            }
+
+            // Date the reading by its CGM timestamp (once NTP has synced) so
+            // staleness reflects the real age, not the poll time. Like the Libre
+            // path this may wrap to a pre-boot millis() value; ages are always
+            // computed with unsigned subtraction.
+            unsigned long reading_age_ms = 0;
+            time_t now = time(nullptr);
+            if (now > 1700000000 && current_reading.timestamp > 0 &&
+                (unsigned long)now >= current_reading.timestamp) {
+                reading_age_ms = ((unsigned long)now - current_reading.timestamp) * 1000UL;
+            }
+            current_reading.received_at_ms = millis() - reading_age_ms;
+
+            // Optional time-in-range statistics from a bridge endpoint.
+            tir_stats.in_range = src["tir"] | -1;
+            tir_stats.below = src["tir_below"] | -1;
+            tir_stats.above = src["tir_above"] | -1;
+            tir_stats.valid = tir_stats.in_range >= 0 && tir_stats.in_range <= 100;
+
+            // Optional pump extras from the bridge. Unknown warning ids are ignored,
+            // so a newer bridge never breaks this firmware.
+            bridge_extras = BridgeExtras{};
+            if (!nightscout) {
+                bridge_extras.temp_target = src["temp_target"] | false;
+                JsonVariantConst iob = src["iob"];
+                if (iob.is<float>()) {
+                    float units = iob.as<float>();
+                    if (units >= 0.0f && units < 100.0f) {
+                        bridge_extras.iob = units;
+                        bridge_extras.iob_valid = true;
+                    }
+                }
+                for (JsonVariantConst w : src["warnings"].as<JsonArrayConst>()) {
+                    uint8_t id = bridge_warning_from_id(w.as<const char*>());
+                    if (id == WARN_NONE || bridge_extras.warning_count >= BRIDGE_MAX_WARNINGS) continue;
+                    bool seen = false;
+                    for (uint8_t i = 0; i < bridge_extras.warning_count; ++i) seen |= bridge_extras.warnings[i] == id;
+                    if (!seen) bridge_extras.warnings[bridge_extras.warning_count++] = id;
+                }
+            }
+            current_reading.valid = (current_reading.glucose > 0);
             current_reading.trend = parse_trend(trend_str);
 
-            const char* msg = doc["message"] | "";
+            const char* msg = src["message"] | "";
             strncpy(current_reading.message, msg, sizeof(current_reading.message) - 1);
             current_reading.message[sizeof(current_reading.message) - 1] = '\0';
 
@@ -391,10 +462,20 @@ static void generic_fetch() {
                 record_reading(current_reading.glucose, current_reading.timestamp);
                 failure_count = 0;
                 ever_received = true;
-                last_success_ms = millis();
+                last_success_ms = current_reading.received_at_ms;
                 Serial.printf("[HTTP] Glucose: %d, Trend: %s\n",
                               current_reading.glucose,
                               TREND_NAMES[current_reading.trend]);
+
+                // Adaptive polling: a bridge can say when the next upload is due.
+                if (src["next_poll_sec"].is<int>()) {
+                    int sec = src["next_poll_sec"].as<int>();
+                    if (sec > 0) {
+                        sec = constrain(sec, 10, 300);
+                        next_poll_override_ms = (unsigned long)sec * 1000UL;
+                        Serial.printf("[HTTP] Next poll in %ds (bridge)\n", sec);
+                    }
+                }
             } else {
                 failure_count++;
                 Serial.println("[HTTP] Invalid glucose value");
@@ -447,7 +528,18 @@ static void demo_generate() {
     strncpy(last_response_body, "demo mode", sizeof(last_response_body) - 1);
 }
 
+const TirStats& http_get_tir() {
+    return tir_stats;
+}
+
+const BridgeExtras& http_get_extras() {
+    return bridge_extras;
+}
+
 void http_clear_readings() {
+    tir_stats = TirStats{-1, -1, -1, false};
+    bridge_extras = BridgeExtras{};
+    next_poll_override_ms = 0;
     memset(&current_reading, 0, sizeof(GlucoseReading));
     current_reading.valid = false;
     current_reading.force_mode = -1;
@@ -475,6 +567,55 @@ void http_init() {
     demo_value = 90;
 }
 
+bool http_request_clear_reminders() {
+    const AppConfig& cfg = config_get();
+    char url[sizeof(cfg.server_url) + 32];
+    if (cfg.data_source != 0 || !bridge_reminders_clear_url(cfg.server_url, url, sizeof(url))) return false;
+    clear_reminders_status = 1;
+    clear_reminders_requested = true;
+    return true;
+}
+
+int http_clear_reminders_status() {
+    return clear_reminders_status;
+}
+
+// POST <bridge>/reminders/clear?id=all with the clock token. One request per
+// loop pass: the glucose fetch that shows the result runs on the next pass, so
+// the two never add up against the 30 s task watchdog.
+static void clear_reminders_now() {
+    AppConfig& cfg = config_get();
+    char url[sizeof(cfg.server_url) + 32];
+    if (!bridge_reminders_clear_url(cfg.server_url, url, sizeof(url))) {
+        clear_reminders_status = -1;
+        return;
+    }
+
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setTimeout(10);
+    client.setHandshakeTimeout(8);
+
+    HTTPClient http;
+    Serial.printf("[HTTP] Clearing pump reminders: %s\n", url);
+    if (!http.begin(client, url)) {
+        clear_reminders_status = -1;
+        return;
+    }
+    http.setConnectTimeout(5000);
+    http.setTimeout(10000);
+    http.addHeader("Accept", "application/json");
+    if (strlen(cfg.auth_token) > 0) {
+        char auth_header[280];
+        snprintf(auth_header, sizeof(auth_header), "Bearer %s", cfg.auth_token);
+        http.addHeader("Authorization", auth_header);
+    }
+    const int code = http.POST((uint8_t*)nullptr, 0);
+    Serial.printf("[HTTP] Clear reminders: %d\n", code);
+    http.end();
+    clear_reminders_status = code == 0 ? -1 : code;
+}
+
 void http_loop() {
     if (http_paused) return;
     AppConfig& cfg = config_get();
@@ -488,7 +629,17 @@ void http_loop() {
     if (!wifi_is_connected()) return;
     if (!config_has_server()) return;
 
-    unsigned long interval_ms = max(15, cfg.poll_interval_sec) * 1000UL;
+    if (clear_reminders_requested) {
+        clear_reminders_requested = false;
+        clear_reminders_now();
+        last_poll_ms = 0;  // fetch on the next pass, so the clock shows the result
+        next_poll_override_ms = 0;
+        return;
+    }
+
+    unsigned long interval_ms = next_poll_override_ms > 0
+        ? next_poll_override_ms
+        : max(15, cfg.poll_interval_sec) * 1000UL;
 
     if (last_poll_ms != 0 && (millis() - last_poll_ms < interval_ms)) {
         return;

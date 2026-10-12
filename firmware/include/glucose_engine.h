@@ -24,7 +24,10 @@ enum DisplayState {
     STATE_NET_LIMITED,   // associated, but DNS / data source / NTP is blocked
     STATE_DATE_DISPLAY,  // internal date page of the time display
     STATE_CONNECTION_INFO_DISPLAY, // retain the numeric value shipped in v0.2.6
-    STATE_AMBIENT_CREATURE_DISPLAY  // append new modes to preserve force_mode API values
+    STATE_AMBIENT_CREATURE_DISPLAY, // append new modes to preserve force_mode API values
+    STATE_TIR_DISPLAY,              // 24h time in range from a bridge endpoint
+    STATE_IOB_DISPLAY,              // active insulin from a bridge endpoint
+    STATE_ALERTS_DISPLAY            // pump alerts from a bridge endpoint (only while active)
 };
 
 // Glucose thresholds for color coding
@@ -93,5 +96,13 @@ void engine_right_long_action();
 
 // Snooze buzzer alerts (called from button press)
 void engine_snooze_alerts();
+
+// True while fresh pump alerts from the bridge put the alerts screen in the rotation.
+bool engine_bridge_alerts_active();
+
+// Play the given pump alerts once (web UI preview), then return to the previous
+// screen. Safe to call from the web server task. False while the low-glucose lock
+// is active or the list is empty.
+bool engine_preview_alerts(const uint8_t* warnings, uint8_t count);
 
 #endif // GLUCOSE_ENGINE_H

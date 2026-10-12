@@ -182,15 +182,19 @@ The LED matrix should briefly show `SUGAR` in teal, then transition to `SETUP` (
 ### First-Time WiFi Setup
 
 On first boot with no WiFi configured, the clock starts an open network named
-`SugarClock-Setup`. The display cycles the network name and `192.168.4.1`.
+`SugarClock-Setup-XXXX`, where `XXXX` is unique per clock, so two new clocks are never mixed
+up. The display cycles the exact network name and `192.168.4.1`.
 
-1. Join `SugarClock-Setup` from a phone or computer.
+1. Join that `SugarClock-Setup-XXXX` network from a phone or computer.
 2. If a captive-network window appears, follow its signpost and open a normal Safari,
    Chrome, or Edge window. The setup process is too long-lived for the captive webview.
 3. Open `http://192.168.4.1`.
 4. Open the **WiFi** tab, choose a visible 2.4 GHz network (or type a hidden SSID), and
    select **Join this network**.
 5. The clock tests the credentials first and saves them only after the connection succeeds.
+6. Once it's on your network, the clock scrolls its address once, e.g.
+   `To connect, visit sugarclock-a1b2.local or 192.168.0.12`. Give it a name on the
+   **Clocks** tab; the address follows the name (`keuken.local`).
 
 If saved WiFi cannot connect, the same setup network starts automatically after about two
 minutes. The clock continues retrying the saved network whenever no phone is using the setup
@@ -202,7 +206,7 @@ SugarClock supports WPA2-Enterprise with PEAP or EAP-TTLS username/password auth
 It does not support certificate-based EAP-TLS.
 
 For the easiest on-site flow, choose **Skip — I’ll set this up on the device** in the macOS
-installer. At the school, power the clock, join `SugarClock-Setup` from a phone, open
+installer. At the school, power the clock, join its `SugarClock-Setup-XXXX` network from a phone, open
 `http://192.168.4.1`, and select the school network. Enterprise networks are marked in the
 network list. PEAP is the right default for most K-12 networks; use EAP-TTLS only when school
 IT specifies it.

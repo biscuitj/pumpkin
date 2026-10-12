@@ -1,0 +1,56 @@
+# Copy to wrangler.toml and fill in the <…> values. wrangler.toml itself is not committed.
+name = "sugarclock-bridge"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Secrets (not in this file):
+#   npx wrangler secret put NS_TOKEN       -> Nightscout read token (follower-…), used as fallback
+#   npx wrangler secret put CLOCK_TOKEN    -> long random string, also entered in the clock's token field
+#   npx wrangler secret put NS_API_SECRET  -> Nightscout API_SECRET; enables the upload to Nightscout
+#                                            (or NS_UPLOAD_TOKEN: a Nightscout token with the admin role)
+
+# CareLink state (tokens, config, snapshot, status). Create once:
+#   npx wrangler kv namespace create CARELINK
+# and paste the printed id below.
+[[kv_namespaces]]
+binding = "CARELINK"
+id = "<your KV namespace id>"
+
+# Keep-alive: refreshes CareLink tokens and data when the clock isn't polling.
+[triggers]
+crons = ["*/30 * * * *"]
+
+[vars]
+NS_URL = "https://<your-nightscout-site>"
+
+# CareLink (pump data). Set CARELINK_ENABLED = "false" to run on Nightscout only.
+CARELINK_ENABLED = "true"
+CARELINK_COUNTRY = "BE"
+CARELINK_LAG_SEC = "75"       # a new reading is usually in CareLink this long after sensor time
+PUMP_MAX_AGE_MIN = "15"       # pump extras (IOB, alerts, temp target …) older than this are left out
+# Optional overrides when auto-detection fails:
+# CARELINK_USERNAME = "care-partner-username"
+# CARELINK_PATIENT_USERNAME = "patient-username"
+
+# Upload CareLink data to Nightscout after each fetch (needs NS_API_SECRET or NS_UPLOAD_TOKEN).
+# Only enable once Nightscout's own CareLink poller is off.
+NS_UPLOAD = "true"
+# Debug only: also store the raw CareLink data in Nightscout (device "sugarclock-bridge-raw").
+# Contains personal data (names, serials). Leave off unless investigating a pump event.
+RAW_CAPTURE = "false"
+
+# Time in range
+TARGET_LOW = "70"
+TARGET_HIGH = "180"
+TIR_MIN_COVERAGE = "0.5"      # need readings in at least 50% of the last 24h
+
+# Active insulin. The pump's own value comes from CareLink. IOB_ENABLED only adds
+# Nightscout's calculated IOB as a fallback (not recommended; see README).
+IOB_ENABLED = "false"
+IOB_MAX_AGE_MIN = "15"
+
+# Adaptive polling: the clock polls this many seconds after the next expected reading
+POLL_MARGIN_SEC = "5"
+
+# Freshness: older than this -> HTTP 503, the clock shows stale/no data
+STALE_MAX_MIN = "30"

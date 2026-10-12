@@ -59,8 +59,14 @@ static void config_set_defaults() {
 
     // Time
     strncpy(config.timezone, "EST5EDT,M3.2.0,M11.1.0", sizeof(config.timezone));
+    config.clock_name[0] = '\0';
     config.use_24h = false;
     config.time_display_enabled = true;
+    config.trend_display_enabled = true;
+    config.tir_display_enabled = true;
+    config.iob_display_enabled = true;
+    config.alerts_display_enabled = true;
+    config.alerts_replace_pet = false;
 
     // Default mode
     config.default_mode = 0; // glucose
@@ -70,6 +76,7 @@ static void config_set_defaults() {
     config.ambient_character = COMPANION_FISH;
     config.ambient_style = COMPANION_TEXT;
     config.ambient_use_glucose_colors = false;
+    config.ambient_show_tir = true;
     config.ambient_seasonal = true;
 
     // Alerts
@@ -95,6 +102,7 @@ static void config_set_defaults() {
     config.night_start_hour = 22;
     config.night_end_hour = 7;
     config.night_brightness = 10;
+    config.night_full_mute = false;
 
     // Stale timeout
     config.stale_timeout_min = 20;
@@ -214,6 +222,12 @@ static void config_check_littlefs_overlay() {
     if (doc["auth_token"].is<const char*>())     strncpy(config.auth_token, doc["auth_token"], sizeof(config.auth_token));
     if (doc["timezone"].is<const char*>())       strncpy(config.timezone, doc["timezone"], sizeof(config.timezone));
     if (doc["time_display_enabled"].is<bool>()) config.time_display_enabled = doc["time_display_enabled"];
+    if (doc["trend_display_enabled"].is<bool>()) config.trend_display_enabled = doc["trend_display_enabled"];
+    if (doc["ambient_show_tir"].is<bool>()) config.ambient_show_tir = doc["ambient_show_tir"];
+    if (doc["tir_display_enabled"].is<bool>()) config.tir_display_enabled = doc["tir_display_enabled"];
+    if (doc["iob_display_enabled"].is<bool>()) config.iob_display_enabled = doc["iob_display_enabled"];
+    if (doc["alerts_display_enabled"].is<bool>()) config.alerts_display_enabled = doc["alerts_display_enabled"];
+    if (doc["alerts_replace_pet"].is<bool>()) config.alerts_replace_pet = doc["alerts_replace_pet"];
     if (doc["glucose_only_when_low"].is<bool>()) config.glucose_only_when_low = doc["glucose_only_when_low"];
     if (doc["use_mmol"].is<bool>())              config.use_mmol = doc["use_mmol"];
     if (doc["brightness"].is<int>())             config.brightness = doc["brightness"];
@@ -252,6 +266,7 @@ void config_init() {
         config.wifi_validate_ca = prefs.getBool("wifi_ca_val", false);
         config.data_source = prefs.getInt("data_src", 0);
         prefs.getString("server_url", config.server_url, sizeof(config.server_url));
+        prefs.getString("clk_name", config.clock_name, sizeof(config.clock_name));
         prefs.getString("auth_token", config.auth_token, sizeof(config.auth_token));
         prefs.getString("dex_user", config.dexcom_username, sizeof(config.dexcom_username));
         prefs.getString("dex_pass", config.dexcom_password, sizeof(config.dexcom_password));
@@ -274,6 +289,11 @@ void config_init() {
         prefs.getString("timezone", config.timezone, sizeof(config.timezone));
         config.use_24h = prefs.getBool("use_24h", false);
         config.time_display_enabled = prefs.getBool("time_en", true);
+        config.trend_display_enabled = prefs.getBool("trend_en", true);
+        config.tir_display_enabled = prefs.getBool("tir_en", true);
+        config.iob_display_enabled = prefs.getBool("iob_en", true);
+        config.alerts_display_enabled = prefs.getBool("alrt_en", true);
+        config.alerts_replace_pet = prefs.getBool("alrt_pet", false);
         config.default_mode = prefs.getInt("def_mode", 0);
 
         // The first preview build used mascot-specific keys. Keep those values
@@ -284,6 +304,7 @@ void config_init() {
         config.ambient_seasonal = prefs.getBool("amb_season", prefs.getBool("fish_season", previous_ambient_seasonal));
         config.ambient_character = companion_or_default(prefs.getInt("pal_type", prefs.getInt("amb_kind", COMPANION_FISH)));
         config.ambient_use_glucose_colors = prefs.getBool("pal_colors", false);
+        config.ambient_show_tir = prefs.getBool("pal_tir", true);
         config.ambient_style = companion_style_or_default(prefs.getInt("pal_style", COMPANION_TEXT));
 
         // Alerts
@@ -309,6 +330,7 @@ void config_init() {
         config.night_start_hour = prefs.getInt("night_start", 22);
         config.night_end_hour = prefs.getInt("night_end", 7);
         config.night_brightness = prefs.getUChar("night_brt", 10);
+        config.night_full_mute = prefs.getBool("night_mute", false);
 
         // Stale timeout
         config.stale_timeout_min = prefs.getInt("stale_min", 20);
@@ -402,6 +424,7 @@ void config_save() {
     prefs.putBool("wifi_ca_val", config.wifi_validate_ca);
     prefs.putInt("data_src", config.data_source);
     prefs.putString("server_url", config.server_url);
+    prefs.putString("clk_name", config.clock_name);
     prefs.putString("auth_token", config.auth_token);
     prefs.putString("dex_user", config.dexcom_username);
     prefs.putString("dex_pass", config.dexcom_password);
@@ -424,6 +447,11 @@ void config_save() {
     prefs.putString("timezone", config.timezone);
     prefs.putBool("use_24h", config.use_24h);
     prefs.putBool("time_en", config.time_display_enabled);
+    prefs.putBool("trend_en", config.trend_display_enabled);
+    prefs.putBool("tir_en", config.tir_display_enabled);
+    prefs.putBool("iob_en", config.iob_display_enabled);
+    prefs.putBool("alrt_en", config.alerts_display_enabled);
+    prefs.putBool("alrt_pet", config.alerts_replace_pet);
     prefs.putInt("def_mode", config.default_mode);
     prefs.putBool("amb_en", config.ambient_enabled);
     config.ambient_character = companion_or_default(config.ambient_character);
@@ -431,6 +459,7 @@ void config_save() {
     config.ambient_style = companion_style_or_default(config.ambient_style);
     prefs.putInt("pal_style", config.ambient_style);
     prefs.putBool("pal_colors", config.ambient_use_glucose_colors);
+    prefs.putBool("pal_tir", config.ambient_show_tir);
     prefs.putBool("amb_season", config.ambient_seasonal);
 
     // Alerts
@@ -456,6 +485,7 @@ void config_save() {
     prefs.putInt("night_start", config.night_start_hour);
     prefs.putInt("night_end", config.night_end_hour);
     prefs.putUChar("night_brt", config.night_brightness);
+    prefs.putBool("night_mute", config.night_full_mute);
 
     // Stale timeout
     prefs.putInt("stale_min", config.stale_timeout_min);

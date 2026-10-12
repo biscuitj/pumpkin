@@ -9,6 +9,8 @@
 #include "weather_client.h"
 
 #include <Arduino.h>
+#include <stdio.h>
+#include <string.h>
 
 namespace {
 
@@ -215,6 +217,33 @@ static void draw_missing_glucose() {
     display_draw_text("---", 7, 0, packed_color(config_get().color_stale));
 }
 
+// 3x5 digits and '%' for the time-in-range label, in the same cell size as the
+// companion's LOW / OK / HIGH lettering (3 px glyphs, 1 px gaps, rows 2-6).
+static void draw_tir_label(int percent) {
+    static const char* const digits[11][5] = {
+        {"111","101","101","101","111"}, {"010","110","010","010","111"},
+        {"111","001","111","100","111"}, {"111","001","111","001","111"},
+        {"101","101","111","001","001"}, {"111","100","111","001","111"},
+        {"111","100","111","101","111"}, {"111","001","010","010","010"},
+        {"111","101","111","101","111"}, {"111","101","111","001","111"},
+        {"101","001","010","100","101"}  // '%'
+    };
+    const AppConfig& cfg = config_get();
+    // Same colouring as the TIR screen: >=70% is the usual consensus goal.
+    uint32_t packed = percent >= 70 ? cfg.color_in_range
+                    : percent >= 50 ? cfg.color_high
+                                    : cfg.color_urgent_low;
+    char text[6];
+    snprintf(text, sizeof(text), "%d%%", percent);
+    int len = (int)strlen(text);
+    int start = 15 + (17 - (len * 4 - 1)) / 2;
+    for (int i = 0; i < len; ++i) {
+        int glyph = text[i] == '%' ? 10 : text[i] - '0';
+        for (int y = 0; y < 5; ++y) for (int x = 0; x < 3; ++x)
+            if (digits[glyph][y][x] == '1') display_draw_pixel(start + i * 4 + x, y + 2, packed_color(packed));
+    }
+}
+
 static void draw_companion(unsigned long frame, bool resting, bool interacting, GlucoseEffect effect) {
     char pixels[8][32];
     bool happy = interacting || (!resting && effect == GLUCOSE_EFFECT_IN_RANGE && frame % 80 < 16);
@@ -225,10 +254,18 @@ static void draw_companion(unsigned long frame, bool resting, bool interacting, 
         : frame * FISH_FRAME_MS;
     companion_frame(config_get().ambient_character, animation_ms, resting, happy, pixels,
                     config_get().ambient_style, range);
+    // Optionally replace the LOW / OK / HIGH word with the 24h time in range.
+    const TirStats& tir = http_get_tir();
+    bool show_tir = config_get().ambient_show_tir && tir.valid &&
+                    companion_style_or_default(config_get().ambient_style) == COMPANION_TEXT;
+    if (show_tir) {
+        for (int y = 0; y < 8; ++y) for (int x = 14; x < 32; ++x) pixels[y][x] = '.';
+    }
     for (int y = 0; y < 8; ++y) for (int x = 0; x < 32; ++x) {
         if (pixels[y][x] != '.') display_draw_pixel(x, y, packed_color(companion_resolve_color(pixels[y][x], config_get().ambient_use_glucose_colors,
             config_get().color_low, config_get().color_in_range, config_get().color_high)));
     }
+    if (show_tir) draw_tir_label(tir.in_range);
 }
 
 static void draw_seasonal_surprise(unsigned long frame) {

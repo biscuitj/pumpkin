@@ -18,6 +18,23 @@ struct GlucoseReading {
     bool valid;                 // true if successfully parsed
 };
 
+// Time-in-range statistics (percentages, -1 = unknown) from a bridge endpoint.
+struct TirStats {
+    int in_range;
+    int below;
+    int above;
+    bool valid;
+};
+
+// Pump extras from a sugarclock-bridge endpoint (defaults when absent).
+struct BridgeExtras {
+    bool temp_target;           // tijdelijke streefwaarde active
+    bool iob_valid;             // false when the bridge sends iob: null
+    float iob;                  // active insulin (U)
+    uint8_t warning_count;
+    uint8_t warnings[7];        // BridgeWarning values, highest priority first
+};
+
 // History entry for graph
 struct GlucoseHistoryEntry {
     int glucose;                // mg/dL
@@ -55,6 +72,12 @@ bool http_has_ever_received();
 // Get time since last successful reading (ms)
 unsigned long http_time_since_last_reading();
 
+// Latest time-in-range statistics (valid=false when the source sends none)
+const TirStats& http_get_tir();
+
+// Latest pump extras from the bridge (all off/empty for other sources)
+const BridgeExtras& http_get_extras();
+
 // Get delta from previous reading (mg/dL, positive = rising)
 int http_get_delta();
 
@@ -63,6 +86,16 @@ int http_get_history(GlucoseHistoryEntry* out, int max_count);
 
 // Force an immediate glucose fetch (for testing), returns true on success
 bool http_force_fetch();
+
+// Ask the sugarclock-bridge to clear its remembered pump reminders (web UI button).
+// Safe to call from another task: the POST runs on the next http_loop(), and the
+// glucose fetch right after it. False when the clock isn't pointed at a bridge.
+bool http_request_clear_reminders();
+
+// Result of the last clear request: 0 = none yet, 1 = pending, otherwise the
+// bridge's HTTP status (200 cleared, 404 nothing to clear) or a negative
+// HTTPClient error.
+int http_clear_reminders_status();
 
 // Pause background glucose/Dexcom/custom HTTP traffic during OTA download.
 void http_set_paused(bool paused);
