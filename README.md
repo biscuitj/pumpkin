@@ -52,3 +52,7 @@ Pumpkin is a personal project, made for one family and shared with others. If
 it helps yours, you can [buy me a coffee](https://buymeacoffee.com/biscuitj_pumpkin).
 It's a thank-you, not a purchase: it doesn't buy support, updates or any
 guarantee, and everything above still applies.
+
+Pumpkin's clock firmware comes from [SugarClock](https://github.com/cdemeke/SugarClock)
+by Chris Demeke, who shared it for free. If you want to thank someone, he
+deserves it too: a star on his repository is a good start.
