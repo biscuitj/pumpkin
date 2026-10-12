@@ -10,12 +10,13 @@ const iso = (ms) => new Date(ms).toISOString();
 const TOKENS = () => ({ access_token: jwt(NOW + 100 * HOUR), refresh_token: 'rt-0', client_id: 'client', refreshed_at: NOW });
 
 /** patientData with the given pump state; notification and marker times are absolute. */
-function pdAt(t, { reservoir = 113.5, battery = 75, sensorHours = 146, active = [], cleared = [], markers = [], suspended = false, banners, extraMarkers = [] } = {}) {
+function pdAt(t, { mode = 'AUTO_BASAL', reservoir = 113.5, battery = 75, sensorHours = 146, active = [], cleared = [], markers = [], suspended = false, banners, extraMarkers = [] } = {}) {
   const shiftIso = iso;
   return patientData({
     extra: {
       reservoirRemainingUnits: reservoir,
       pumpSuspended: suspended,
+      therapyAlgorithmState: { autoModeShieldState: mode },
       pumpBannerState: banners || (suspended ? [{ type: 'DELIVERY_SUSPEND' }] : []),
       lastMedicalDeviceDataUpdateServerTime: t - 20000,
       pumpBatteryLevelPercent: battery,
@@ -121,10 +122,33 @@ test('sensor, battery and BG reminders clear on their own evidence', () => {
   assert.deepEqual(activeLatches(l), []);
 
   // BG required: a finger-prick BG after the alert
-  l = updateLatches({}, snap({ active: [[829, NOW - 10 * MIN]], markers: [['BG_READING', NOW - 2 * HOUR, 140]] }), NOW);
+  const safe = { mode: 'SAFE_BASAL' };
+  l = updateLatches({}, snap({ ...safe, active: [[829, NOW - 10 * MIN]], markers: [['BG_READING', NOW - 2 * HOUR, 140]] }), NOW);
   assert.deepEqual(activeLatches(l), ['bg']);
-  l = updateLatches(l, snap({ markers: [['BG_READING', NOW - 2 * MIN, 132]] }), NOW + MIN);
+  l = updateLatches(l, snap({ ...safe, markers: [['BG_READING', NOW - 2 * MIN, 132]] }), NOW + MIN);
   assert.deepEqual(activeLatches(l), []);
+});
+
+test('SmartGuard BG required clears when the pump is back in Auto Basal, without a finger BG', () => {
+  const snap = (opts) => buildSnapshot(pdAt(NOW, opts), NOW);
+  // 821 minimum delivery timeout: alert dismissed, pump stays in Safe Basal (blue bar)
+  let l = updateLatches({}, snap({ mode: 'SAFE_BASAL', active: [[821, NOW - 5 * MIN]] }), NOW);
+  assert.deepEqual(activeLatches(l), ['bg']);
+  l = updateLatches(l, snap({ mode: 'SAFE_BASAL' }), NOW + 10 * MIN);
+  assert.deepEqual(activeLatches(l), ['bg'], 'still Safe Basal: still needed');
+  l = updateLatches(l, snap({ mode: 'AUTO_BASAL' }), NOW + HOUR);
+  assert.deepEqual(activeLatches(l), [], 'SmartGuard is back');
+  assert.equal(l.bg.how, 'pump data');
+
+  // SmartGuard exit to manual (819): stays until a BG or Auto Basal
+  l = updateLatches({}, snap({ mode: 'FEATURE_OFF', active: [[819, NOW - 5 * MIN]] }), NOW);
+  l = updateLatches(l, snap({ mode: 'FEATURE_OFF' }), NOW + HOUR);
+  assert.deepEqual(activeLatches(l), ['bg']);
+
+  // the BG check reminder (103) is not about SmartGuard: only a finger BG clears it
+  l = updateLatches({}, snap({ active: [[103, NOW - 5 * MIN]] }), NOW);
+  l = updateLatches(l, snap({}), NOW + HOUR);
+  assert.deepEqual(activeLatches(l), ['bg']);
 });
 
 test('reminders expire after 72 h; the warning triangle is never latched', () => {

@@ -150,7 +150,7 @@ pio device monitor
 You should see:
 ```
 ================================
-Pumpkin v0.9.0
+Pumpkin v0.9.1
 Reset reason: 1
 ================================
 [CONFIG] No valid config found, writing defaults

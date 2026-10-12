@@ -25,7 +25,7 @@ A separate screen that only appears in the rotation while there is something to 
 | `warning` | pump alerts delivery stopped, set connect, sensor signal, calibration, **and SmartGuard auto-suspend (809/810, `SUSPENDED_ON_LOW` / `SUSPENDED_BEFORE_LOW`)** | amber triangle (0xFBBC04) with an unlit 2 px exclamation mark | 5 s |
 | `battery` | pump battery alert (remembered until the battery % goes up) | battery · **next: light blue 0x64B5F6** (now red) | 5 s |
 | `reservoir` | reservoir alert (remembered until the reservoir goes up ≥ 5 U) | reservoir · **next: green 0x34A853** (now red) | 5 s |
-| `bg` | BG required (remembered until a finger-prick BG) | red blood drop | 5 s |
+| `bg` | BG required (remembered until a finger-prick BG, or until SmartGuard is back in Auto Basal) | red blood drop | 5 s |
 | `sensor` | sensor alert (remembered until sensor time left goes up ≥ 12 h) | done: `SENSOR VERVANGEN` scrolls, red · **next: static `SENSOR` in narrow 4×7 letters, yellow 0xFFE000** | scroll once · **5 s** |
 | `set` | set change reminder (remembered until a tubing fill: suspended + reservoir −≥ 5 U unexplained) | done: `SET VERVANGEN` scrolls, red · **next: static `SET` in the normal font, yellow 0xFFE000** | scroll once · **5 s** |
 

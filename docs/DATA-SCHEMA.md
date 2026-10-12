@@ -236,7 +236,7 @@ remembered (`snapshot.latches`) and stay in `warnings` until one of these happen
 | `reservoir` | the reservoir goes up by ≥ 5 U (a new reservoir) |
 | `battery` | the pump battery % goes up |
 | `sensor` | sensor hours left go up by ≥ 12 (a new sensor) |
-| `bg` | a finger-prick BG marker after the alert |
+| `bg` | a finger-prick BG marker after the alert; for SmartGuard's BG required (819, 821, 822, 829) also the pump back in Auto Basal |
 | any | 72 h have passed, or `POST /reminders/clear?id=<id>` (or `id=all`) |
 
 A reminder that was dismissed between two polls is picked up from the pump's

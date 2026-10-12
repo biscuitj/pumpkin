@@ -16,6 +16,16 @@ How versions work:
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-12
+
+### Fixed
+- Bridge: the **BG required** reminder stayed on the clock after the pump went
+  back to SmartGuard by itself (Safe Basal → Auto Basal without a finger BG).
+  SmartGuard's BG required alerts (819, 821, 822, 829) now also clear when the
+  pump is in Auto Basal again, which is when the pump's blue bar goes away. The
+  BG check reminder (103) still waits for a finger BG. A reminder that is stuck
+  now clears on the first poll after deploying.
+
 ## [0.9.0] - 2026-10-12
 
 Pumpkin can be installed by other families: a new install guide without
@@ -291,6 +301,7 @@ Multiple clocks on one network. Firmware only; the Worker is unchanged.
 - Firmware: "Show Trend Screen" toggle (`trend_en`).
 
 [Unreleased]: #unreleased
+[0.9.1]: #091---2026-10-12
 [0.9.0]: #090---2026-10-12
 [0.8.0]: #080---2026-10-12
 [0.7.0]: #070---2026-10-12

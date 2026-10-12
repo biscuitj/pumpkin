@@ -299,6 +299,11 @@ const LATCH_FOR = {
   bg_required: 'bg',
 };
 export const LATCH_MAX_AGE_MS = 72 * HOUR;
+// "BG required" alerts that SmartGuard raises when it drops to Safe Basal or
+// exits (819 exit, 821/822 min/max delivery timeout, 829 BG required). The pump
+// keeps a blue "BG required" bar until SmartGuard runs again, with or without a
+// finger BG: it can return to Auto Basal by itself when the sensor recovers.
+const SMARTGUARD_BG_CODES = new Set(['819', '821', '822', '829']);
 const CLEARED_LOOKBACK_MS = 2 * HOUR;  // dismissed between polls; older ones were seen (or handled) already
 
 /** Current value the "action done" check watches for each latch, or null. */
@@ -312,7 +317,10 @@ function latchMeasure(id, snap) {
 /** Did the pump data since the latch started show the action? */
 function latchResolved(id, latch, snap) {
   const now = latchMeasure(id, snap);
-  if (id === 'bg') return Boolean(snap.bg_at && snap.bg_at > latch.since);
+  if (id === 'bg') {
+    if (snap.bg_at && snap.bg_at > latch.since) return true;
+    return SMARTGUARD_BG_CODES.has(String(latch.code)) && snap.pump.auto_mode === 'AUTO_BASAL';
+  }
   // A set change doesn't need a new reservoir, but its tubing is always filled.
   if (id === 'set') return Boolean(snap.set_change_at && snap.set_change_at > latch.since);
   if (now === null || latch.low === null || latch.low === undefined) return false;
