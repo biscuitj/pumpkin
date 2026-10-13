@@ -16,6 +16,38 @@ How versions work:
 
 ## [Unreleased]
 
+Safety for developers with more than one board connected: firmware only goes
+to the device you meant. The bridge is unchanged.
+
+### Added
+- Firmware: **USB guard** (`scripts/upload_guard.py`) before `pio run -t upload`,
+  `uploadfs` and `erase`. It picks the single CH340 device that is connected
+  (or the `--upload-port` you give), reads its chip, MAC, flash size and clock
+  settings (read only), and fixes PlatformIO to that port. A clock that already
+  runs Pumpkin or SugarClock is updated without a question; any other device,
+  and every erase, needs a `y`. No clock or more than one: it stops. Without a
+  terminal it refuses unless `PUMPKIN_DEVICE` lists the device's MAC;
+  `PUMPKIN_SKIP_USB_GUARD=1` turns it off.
+- Firmware: **update check**. The clock only installs a `.bin` that is an ESP32
+  app image carrying this build's marker `PUMPKIN-IMAGE|ulanzi-tc001-esp32-4mb|`.
+  Other projects, other chips and Pumpkin builds for other hardware are refused
+  and the clock keeps running what it has. The Device page checks the file in
+  the browser before uploading, and the build fails if `firmware.bin` lacks the
+  marker.
+- Firmware: the Device page shows **which clock** (name and `.local` address)
+  next to the file picker and in the install confirmation.
+  `GET /api/update/status` adds `clock_name`, `clock_host`, `clock_id`,
+  `hardware` and `image_id`.
+
+### Changed
+- Firmware: `PUMPKIN_HARDWARE_ID` is defined once, in
+  `include/ota_image_check.h` (no longer injected by `pre_build.py`).
+
+### Notes
+- Firmware older than this version has no marker, so a clock running this
+  version won't take an older one through the web page. Go back over USB
+  instead.
+
 ## [0.10.0] - 2026-10-12
 
 A pumpkin joins the display pets, and the clock drops the features a glucose

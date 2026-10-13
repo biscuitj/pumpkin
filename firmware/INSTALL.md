@@ -101,6 +101,19 @@ If the upload fails with a connection error:
 
 ### Option A: PlatformIO (Recommended)
 
+Every target that writes to a device (`upload`, `uploadfs`, `erase`) goes
+through the USB guard first (`scripts/upload_guard.py`). It picks the one CH340
+device that is connected, reads its chip, MAC, flash size and settings
+(read only), and only then lets PlatformIO write, to that port and no other:
+
+- a clock that already runs Pumpkin or SugarClock: uploads without asking;
+- anything else, and every erase: asks `[y/N]` and shows the MAC first;
+- no CH340 device, or more than one: stops. Choose with `--upload-port`.
+
+Without a terminal to ask in (scripts, CI) it refuses, unless the device's MAC
+is confirmed up front: `PUMPKIN_DEVICE=a4:cf:12:9b:e5:f6 pio run -t upload`
+(comma-separated for more than one). `PUMPKIN_SKIP_USB_GUARD=1` turns it off.
+
 ```bash
 # Upload firmware (the web UI is built into it)
 pio run --target upload
@@ -109,13 +122,17 @@ pio run --target upload
 pio run --target uploadfs
 ```
 
-If PlatformIO can't auto-detect the port, specify it:
+To choose the port yourself (the guard still checks what's on it):
 ```bash
 pio run --target upload --upload-port /dev/cu.usbserial-1410
 pio run --target uploadfs --upload-port /dev/cu.usbserial-1410
 ```
 
 ### Option B: esptool.py (Manual)
+
+esptool writes to whatever ESP32 is on the port you give it; the USB guard
+doesn't run here. Check the port first (`esptool.py -p PORT flash_id` shows the
+MAC) when other boards are connected.
 
 ```bash
 # For a brand-new device only (this destroys all settings):

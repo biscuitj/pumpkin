@@ -17,6 +17,7 @@
 #include "net_check.h"
 #include "web_assets.h"
 #include "ota_manager.h"
+#include "ota_image_check.h"
 #include "bridge_alerts.h"
 #include "clock_identity.h"
 #include "clock_net.h"
@@ -45,9 +46,6 @@ static bool started = false;
 
 #ifndef PUMPKIN_VERSION
 #define PUMPKIN_VERSION "unknown"
-#endif
-#ifndef PUMPKIN_HARDWARE_ID
-#define PUMPKIN_HARDWARE_ID "ulanzi-tc001-esp32-4mb"
 #endif
 
 // Helper: convert uint32_t RGB to "#RRGGBB" hex string
@@ -811,6 +809,13 @@ static void handle_update_status(AsyncWebServerRequest* request) {
     doc["boot_partition"] = snapshot.boot_partition;
     doc["pending_verification"] = snapshot.pending_verification;
     doc["rolled_back"] = snapshot.rolled_back;
+    // Which clock this is, so the update page can say where a file goes, and
+    // the marker a .bin must contain to be accepted here.
+    doc["clock_name"] = clock_net_name();
+    doc["clock_host"] = clock_net_local_host();
+    doc["clock_id"] = clock_net_id();
+    doc["hardware"] = PUMPKIN_HARDWARE_ID;
+    doc["image_id"] = PUMPKIN_IMAGE_MARKER;
     String output;
     serializeJson(doc, output);
     request->send(200, "application/json", output);

@@ -35,5 +35,4 @@ if RUNNING_IN_PIO:
     # Inject build flags
     env.Append(CPPDEFINES=[
         ("PUMPKIN_VERSION", f'\\"{version_str}\\"'),
-        ("PUMPKIN_HARDWARE_ID", '\\"ulanzi-tc001-esp32-4mb\\"'),
     ])

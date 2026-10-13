@@ -31,6 +31,7 @@ cd bridge && npm install && npm test && npx wrangler deploy
 
 # Firmware (PlatformIO)
 cd firmware && pio run -t upload            # first time / recovery: over USB
+                                            # (USB guard checks the device first)
 python3 -m pytest -q tests/                 # host tests
 # later updates: upload firmware/.pio/build/esp32dev/firmware.bin in the
 # clock's web page (Device → Update firmware)

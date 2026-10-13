@@ -1,5 +1,6 @@
 #include "ota_manager.h"
 #include "ota_boot_validation.h"
+#include "ota_image_check.h"
 
 #include "config_manager.h"
 #include "display.h"
@@ -28,6 +29,9 @@ static uint32_t last_render_ms = 0;
 static uint32_t reboot_at_ms = 0;
 static size_t upload_total = 0;
 static size_t upload_received = 0;
+// Checks the upload as it streams in: ESP32 header first, the Pumpkin marker
+// for this hardware by the end. A file that fails is never selected for boot.
+static OtaImageCheck image_check;
 
 static void copy_text(char* dst, size_t size, const char* src) {
     strncpy(dst, src ? src : "", size - 1);
@@ -95,6 +99,10 @@ bool ota_upload_begin(size_t total_size) {
         set_state(OTA_ERROR, "firmware_too_large");
         return false;
     }
+    if (!ota_image_check_begin(image_check, PUMPKIN_IMAGE_MARKER, sizeof(PUMPKIN_IMAGE_MARKER_PREFIX) - 1)) {
+        set_state(OTA_ERROR, "image_check_unavailable");
+        return false;
+    }
     if (!Update.begin(total_size ? total_size : UPDATE_SIZE_UNKNOWN, U_FLASH)) {
         set_state(OTA_ERROR, Update.errorString());
         return false;
@@ -110,6 +118,15 @@ bool ota_upload_begin(size_t total_size) {
 
 bool ota_upload_write(const uint8_t* data, size_t len) {
     if (current_state() != OTA_RECEIVING) return false;
+    const OtaImageVerdict verdict = ota_image_check_feed(image_check, data, len);
+    if (verdict != OTA_IMAGE_PENDING) {
+        // Not an ESP32 app image (or one for another chip): stop before
+        // anything of it reaches flash.
+        Serial.printf("[OTA] Upload refused: %s\n", ota_image_verdict_error(verdict));
+        Update.abort();
+        set_state(OTA_ERROR, ota_image_verdict_error(verdict));
+        return false;
+    }
     if (Update.write(const_cast<uint8_t*>(data), len) != len) {
         Serial.printf("[OTA] Write failed: %s\n", Update.errorString());
         set_state(OTA_ERROR, Update.errorString());
@@ -123,6 +140,16 @@ bool ota_upload_write(const uint8_t* data, size_t len) {
 
 bool ota_upload_end() {
     if (current_state() != OTA_RECEIVING) return false;
+    const OtaImageVerdict verdict = ota_image_check_finish(image_check);
+    if (verdict != OTA_IMAGE_OK) {
+        // Written to the inactive slot but never selected: the clock keeps
+        // booting the firmware it runs now.
+        Serial.printf("[OTA] Image refused: %s (expected %s)\n",
+                      ota_image_verdict_error(verdict), PUMPKIN_IMAGE_MARKER);
+        Update.abort();
+        set_state(OTA_ERROR, ota_image_verdict_error(verdict));
+        return false;
+    }
     // end(true) verifies the image and selects it for the next boot.
     if (!Update.end(true)) {
         Serial.printf("[OTA] Image rejected: %s\n", Update.errorString());
@@ -204,6 +231,7 @@ void ota_init() {
     memset(&status_snapshot, 0, sizeof(status_snapshot));
     status_snapshot.state = OTA_IDLE;
     copy_text(status_snapshot.current_version, sizeof(status_snapshot.current_version), PUMPKIN_VERSION);
+    Serial.printf("[OTA] Image id: %s\n", PUMPKIN_IMAGE_MARKER);
     inspect_boot_state();
 }
 

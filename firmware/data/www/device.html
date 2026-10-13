@@ -65,8 +65,9 @@
         <div class="card">
             <h2>Update Firmware</h2>
             <p class="card-intro" style="margin:-8px 0 16px;">
-                Upload a <code>firmware.bin</code> (from <code>firmware/.pio/build/esp32dev/</code> after <code>pio run</code>). It goes into the backup slot; after the restart the clock checks itself for about 15 seconds. If the new firmware doesn't come up healthy, the clock goes back to this version by itself.
+                Upload a <code>firmware.bin</code> (from <code>firmware/.pio/build/esp32dev/</code> after <code>pio run</code>). Only Pumpkin firmware for this clock's hardware is accepted. It goes into the backup slot; after the restart the clock checks itself for about 15 seconds. If the new firmware doesn't come up healthy, the clock goes back to this version by itself.
             </p>
+            <div class="status-row"><span class="status-label">This clock</span><span class="status-value" id="ota-clock">--</span></div>
             <div class="status-row"><span class="status-label">Installed</span><span class="status-value" id="ota-current">--</span></div>
             <div class="status-row"><span class="status-label">Status</span><span class="status-value" id="ota-state">--</span></div>
             <div id="ota-error" style="display:none;color:var(--red);font-size:13px;margin:10px 0;"></div>
@@ -120,12 +121,45 @@
         function showToast(m,t){const e=document.getElementById('toast');e.textContent=m;e.className='toast show '+(t==='error'?'toast-error':'toast-success');setTimeout(()=>e.className='toast',3000);}
         function fB(b){if(b>1048576)return(b/1048576).toFixed(1)+' MB';if(b>1024)return(b/1024).toFixed(1)+' KB';return b+' B';}
         function fU(s){const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60);let p=[];if(d)p.push(d+'d');if(h)p.push(h+'h');p.push(m+'m');return p.join(' ');}
-        function otaLabel(s){return String(s||'unknown').replaceAll('_',' ');}
-        let uploading=false;
+        const OTA_ERRORS={
+            not_a_pumpkin_firmware:'That file is not Pumpkin firmware. Nothing was changed.',
+            pumpkin_firmware_for_other_hardware:'That is Pumpkin firmware for other hardware. Nothing was changed.',
+            not_esp32_firmware:'That file is not ESP32 firmware. Nothing was changed.',
+            firmware_for_another_chip:'That firmware is for another ESP32 chip. Nothing was changed.',
+            firmware_file_too_short:'That file is too short to be firmware. Nothing was changed.'
+        };
+        function otaLabel(s){return OTA_ERRORS[s]||String(s||'unknown').replaceAll('_',' ');}
+        let uploading=false,otaInfo={};
+        function clockLabel(o){
+            const name=o.clock_name||'this clock',host=o.clock_host||location.host;
+            return host&&host!==name?name+' ('+host+')':name;
+        }
+        // Same check the clock does, before sending anything: ESP32 app image
+        // header (0xE9, chip id 0 = ESP32) and this clock's Pumpkin marker.
+        function indexOfBytes(hay,needle,from){
+            outer:for(let i=from||0;i<=hay.length-needle.length;i++){
+                for(let j=0;j<needle.length;j++)if(hay[i+j]!==needle[j])continue outer;
+                return i;
+            }
+            return -1;
+        }
+        async function checkFirmwareFile(file){
+            if(!otaInfo.image_id)return null;   // clock didn't say; it checks anyway
+            const b=new Uint8Array(await file.arrayBuffer());
+            if(b.length<24)return 'firmware_file_too_short';
+            if(b[0]!==0xE9)return 'not_esp32_firmware';
+            if((b[12]|(b[13]<<8))!==0)return 'firmware_for_another_chip';
+            const enc=new TextEncoder();
+            if(indexOfBytes(b,enc.encode(otaInfo.image_id))>=0)return null;
+            const prefix=otaInfo.image_id.slice(0,otaInfo.image_id.indexOf('|')+1);
+            return prefix&&indexOfBytes(b,enc.encode(prefix))>=0?'pumpkin_firmware_for_other_hardware':'not_a_pumpkin_firmware';
+        }
         async function loadOta(){
             if(uploading)return;
             try{
                 const r=await fetch('/api/update/status'),o=await r.json();
+                otaInfo=o;
+                document.getElementById('ota-clock').textContent=clockLabel(o);
                 document.getElementById('fw-version').textContent='v'+o.current_version;
                 document.getElementById('ota-current').textContent='v'+o.current_version;
                 const states={idle:'Up to date',receiving:'Receiving',pending_reboot:'Restarting',error:'Failed'};
@@ -140,11 +174,20 @@
             }catch(e){}
         }
 
-        function uploadFirmware(){
+        async function uploadFirmware(){
             const file=document.getElementById('ota-file').files[0];
             if(!file){showToast('Choose a firmware.bin first','error');return;}
             if(!/\.bin$/i.test(file.name)){showToast('That is not a .bin file','error');return;}
-            if(!confirm('Install '+file.name+' ('+fB(file.size)+')? The clock restarts when it is done.'))return;
+            let problem=null;
+            try{problem=await checkFirmwareFile(file);}catch(e){}
+            if(problem){
+                const err=document.getElementById('ota-error');
+                err.textContent=otaLabel(problem);err.style.display='block';
+                showToast(otaLabel(problem),'error');
+                return;
+            }
+            const now=otaInfo.current_version?', now v'+otaInfo.current_version:'';
+            if(!confirm('Install '+file.name+' ('+fB(file.size)+') on '+clockLabel(otaInfo)+now+'? The clock restarts when it is done.'))return;
             const form=new FormData();
             form.append('firmware',file,file.name);
             const xhr=new XMLHttpRequest();

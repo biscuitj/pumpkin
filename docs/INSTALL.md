@@ -228,7 +228,29 @@ terminal, run the `activate` line again before using `pio`.
 
 Connect the clock with the USB-C cable first, directly to the computer (not
 through a hub). The first build downloads the ESP32 toolchain and takes a few
-minutes. If the upload can't find the clock or times out:
+minutes.
+
+Before anything is built, Pumpkin's USB guard checks which device it would
+write to. It only reads from it, and prints something like:
+
+```
+[PUMPKIN] USB guard: checking the device on /dev/cu.usbserial-1410 (read only) …
+[PUMPKIN]   ESP32-D0WD-V3, MAC a4:cf:12:9b:e5:f6, 8 MB flash
+[PUMPKIN]   no Pumpkin or SugarClock settings on it
+[PUMPKIN] Flash Pumpkin onto this device (a4:cf:12:9b:e5:f6)? [y/N]
+```
+
+A new clock (or one on the Ulanzi firmware) has no Pumpkin settings yet, so
+the guard asks; answer `y`. A clock that already runs Pumpkin or SugarClock is
+updated without a question. An erase (`pio run -t erase`) always asks.
+
+The guard stops without writing anything when it finds no clock, or more than
+one possible clock (the TC001's USB chip is a CH340, which many cheap ESP32
+boards use too). Unplug the other boards, or choose the port yourself:
+`pio run -t upload --upload-port /dev/cu.usbserial-1410` (Windows: `COM3`).
+It still checks that port.
+
+If the upload can't find the clock or times out:
 
 - Windows: install the [CH340 driver](https://sparks.gogo.co.nz/ch340.html).
 - Hold the clock's **middle button** while plugging in the cable, release it
@@ -289,7 +311,8 @@ source, and copy.
 
 - **Updating the clock:** build with `pio run` in `firmware/` and upload
   `firmware/.pio/build/esp32dev/firmware.bin` in the clock's web page
-  (**Device → Update firmware**). Settings stay. If the new version doesn't start
+  (**Device → Update firmware**). The page shows the clock's name next to the
+  file picker, and only Pumpkin firmware for this hardware is accepted. Settings stay. If the new version doesn't start
   properly, the clock goes back to the previous one by itself.
 - **Updating the bridge:** `git pull`, then in `bridge/`: `npm install` and
   `npx wrangler deploy`. Your `wrangler.toml` is never overwritten by `git pull`.
@@ -355,7 +378,11 @@ should show `"nightscout_upload"` with `"ok": true`.
 | times an hour or two off | the pump's clock or time zone | check the pump's time; send the `/debug` output to whoever helps you |
 | clock: `NO WIFI` | wrong password, or a 5 GHz-only network | the setup network comes back after about two minutes; join it and choose the network again |
 | clock: `NO DATA` | wrong Server URL or token | check both on the Blood Sugar tab; test with the `curl` from step 8 |
-| forgot the clock's web password | | only a USB reset clears it: in `firmware/`, `pio run -t erase` then `pio run -t upload`, and set the clock up again |
+| forgot the clock's web password | | only a USB reset clears it: in `firmware/`, `pio run -t erase` (the guard shows the clock's name and asks first) then `pio run -t upload`, and set the clock up again |
+| upload: `no Ulanzi clock (CH340 USB serial) is connected` | charge-only cable, a hub, or (Windows) no CH340 driver | use a data cable directly on the computer; the message lists the serial ports it did see |
+| upload: `more than one CH340 device is connected` | another ESP32 board on USB | unplug it, or add `--upload-port PORT` |
+| upload: `couldn't read the device` | the clock isn't in download mode | hold the middle button while plugging in the cable, then try again |
+| update page: `That file is not Pumpkin firmware` (or *for other hardware*, *another chip*) | the wrong `.bin`: another project, or not `firmware/.pio/build/esp32dev/firmware.bin` | build with `pio run` in `firmware/` and upload that file; the clock didn't change |
 
 More on the clock (buttons, screens, recovery):
 [`firmware/INSTALL.md`](../firmware/INSTALL.md). More on the bridge:

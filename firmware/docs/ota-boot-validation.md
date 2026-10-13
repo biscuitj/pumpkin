@@ -7,8 +7,16 @@ nothing is installed automatically.
 ## How an update goes
 
 1. The upload is written to the inactive application slot (`ota_0`/`ota_1`,
-   1.75 MiB each) with the Arduino `Update` library. The image is verified when
-   the upload ends, and only then selected for the next boot.
+   1.75 MiB each) with the Arduino `Update` library. While it streams in,
+   `ota_image_check` looks at it: the first chunk must be an ESP32 app image
+   (magic `0xE9`, chip id ESP32), and by the end it must have contained this
+   build's marker, `PUMPKIN-IMAGE|<hardware id>|` (`include/ota_image_check.h`).
+   A file that fails is aborted and never selected; the error
+   (`not_a_pumpkin_firmware`, `pumpkin_firmware_for_other_hardware`, …) shows
+   on the Device page. The page runs the same check in the browser before it
+   uploads anything, and `scripts/post_build.py` fails a build whose
+   `firmware.bin` lacks the marker. The image is verified when the upload ends,
+   and only then selected for the next boot.
 2. The clock restarts into the new image. The bootloader starts it as
    *pending verification* (rollback is enabled in the Arduino-ESP32 2.0.17
    bootloader; `scripts/check_layout.py` checks `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`).
@@ -25,6 +33,11 @@ nothing is installed automatically.
 Avoid restarts or power loss in the first ~15 seconds after an update.
 
 ## Tests
+
+- `tests/test_ota_image_check.py` feeds images through the upload check in
+  every chunk size (marker split across chunks, other projects, other chips,
+  other hardware), runs the update page's check against the same cases in Node,
+  and checks that `post_build.py` looks for the same marker.
 
 - `tests/test_ota_boot_validation.py` compiles the real `ota_boot_validation.cpp`
   against a weak C default and a C caller, so removing the override or C++
