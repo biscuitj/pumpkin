@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/pumpkin-logo-dark.svg">
-    <img src="docs/assets/pumpkin-logo.svg" alt="Pumpkin" width="420">
+    <img src="docs/assets/pumpkin-logo.svg" alt="Pumpkin, the pump buddy for you and your kin" width="420">
   </picture>
 </p>
 
