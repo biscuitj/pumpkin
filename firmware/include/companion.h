@@ -6,7 +6,9 @@
 #include <initializer_list>
 
 // Persisted IDs: keep Pip at zero for upgrades from Ambient Fish; new pets go at the end.
-enum Companion { COMPANION_FISH, COMPANION_GHOST, COMPANION_AXOLOTL, COMPANION_DINO, COMPANION_TURTLE, COMPANION_OCTOPUS, COMPANION_RED_PANDA, COMPANION_PUMPKIN, COMPANION_COUNT };
+enum Companion { COMPANION_FISH, COMPANION_GHOST, COMPANION_AXOLOTL, COMPANION_DINO, COMPANION_TURTLE, COMPANION_OCTOPUS, COMPANION_RED_PANDA, COMPANION_PUMPKIN,
+                 COMPANION_CAT, COMPANION_FROG, COMPANION_PENGUIN, COMPANION_OWL, COMPANION_LION,
+                 COMPANION_UNICORN, COMPANION_CRAB, COMPANION_COUNT };
 inline bool companion_valid(int id) { return id >= 0 && id < COMPANION_COUNT; }
 inline int companion_or_default(int id) { return companion_valid(id) ? id : COMPANION_FISH; }
 
@@ -37,6 +39,17 @@ inline uint32_t companion_color(char key) {
         case 'V': return 0xc997ff; // octopus
         case 'T': return 0x8f5c47; // red panda feet
         case 'B': return 0x74bfdc;
+        case 'F': return 0x5fd35f; // frog
+        case 'J': return 0xe4f59a; // frog belly
+        case 'N': return 0x3d62d6; // penguin (navy: black LEDs are off)
+        case 'U': return 0xb8743f; // owl
+        case 'Q': return 0xf3d9a8; // owl face
+        case 'A': return 0xffd98a; // lion face
+        case 'K': return 0xd9822b; // lion mane
+        case 'X': return 0xffe36b; // sparkle, unicorn horn
+        case 'Z': return 0x8fb8ff; // sleepy "z"
+        case 'c': return 0xf2554a; // crab
+        case 'k': return 0xb8322b; // crab legs
         default: return 0;
     }
 }
@@ -50,6 +63,177 @@ inline uint32_t companion_resolve_color(char key, bool use_glucose_colors,
         if (key == 'r') return high;
     }
     return companion_color(key);
+}
+
+// Toffee, Kiko, Domino, Hoot, Leo, Stella and Kobi (ids 8-14). Draws into the
+// 14-column pet area; companion_frame() centres the result. Shapes keep the same
+// outline within a pose, so the per-frame centring doesn't make them jump sideways.
+inline void companion_friend(int id, uint32_t ms, int phase, bool sleepy, bool happy, int range,
+                             char (&pet)[8][14]) {
+    auto put = [&](int x, int y, char c) { if (x >= 0 && x < 14 && y >= 0 && y < 8) pet[y][x] = c; };
+    auto load = [&](const char* const* rows) {
+        for (int y = 0; y < 8; ++y) for (int x = 0; x < 14 && rows[y][x]; ++x) pet[y][x] = rows[y][x];
+    };
+    auto zzz = [&](int x, int y) { int step = (ms / 900) % 3; put(x + step, y - step, 'Z'); };
+    const bool low = range == COMPANION_LOW, high = range == COMPANION_HIGH;
+
+    if (id == COMPANION_CAT) {
+        static const char* const cat[] = {"..O.....O.....","..OO...OO.....","..OOOROOO.....","..OEOOOEO.....",".WOOOHOOOW....","...OOOOO...O..","..OOCCCOO..O..","..OCC.CCOOO..."};
+        static const char* const cat_low[] = {"..............",".OO.....OO....","..OOOROOO.....","..OOOOOOO.....",".WOEOHOEOW....","..OOOOOOO.....","..OCCCCCO.....","..OC.C.COOOOO."};
+        if (low) {                                        // ears flat, tail on the floor
+            load(cat_low);
+            if (phase) { put(12,7,'.'); put(12,6,'O'); }
+            return;
+        }
+        load(cat);
+        if (high) {                                       // wide eyes, tail up and puffed
+            put(3,4,'E'); put(7,4,'E'); put(5,5,'E');
+            for (int y = 2; y < 5; ++y) put(11,y,'O');
+            put(12,2,'O'); put(12,3,'O');
+            if (phase) { put(12,2,'.'); put(12,1,'O'); put(11,1,'O'); put(3,7,'.'); put(4,7,'.'); put(2,6,'C'); put(3,6,'C'); }
+            return;
+        }
+        if (phase) { put(11,5,'.'); put(12,4,'O'); }      // tail swish
+        if (sleepy) { put(3,3,'R'); put(7,3,'R'); zzz(11,2); }
+        if (happy) { put(9,4,'O'); put(9,5,'O'); put(phase ? 10 : 9, 3, 'C'); }
+    } else if (id == COMPANION_FROG) {
+        static const char* const frog[] = {".WWW.....WWW..",".WEWFFFFFWEW..","..FFFFFFFFF...",".FGFFFFFFFGF..",".FFEFFFFFEFF..","..FFEEEEEFF...","..FFJJJJJFF...",".FF.F...F.FF.."};
+        load(frog);
+        auto closed = [&](bool left, bool right) {
+            for (int x = 0; x < 3; ++x) {
+                if (left) { put(1 + x, 0, 'F'); put(1 + x, 1, 'D'); }
+                if (right) { put(9 + x, 0, 'F'); put(9 + x, 1, 'D'); }
+            }
+        };
+        if (low) {                                        // heavy lids, frown
+            for (int x : {1, 2, 3, 9, 10, 11}) put(x,0,'F');
+            put(2,1,'E'); put(10,1,'E'); put(3,4,'F'); put(9,4,'F'); put(3,6,'E'); put(9,6,'E');
+            if (phase) closed(true, true);
+        } else if (high) {                                // looking up, mouth open, cheering
+            put(2,1,'W'); put(10,1,'W'); put(2,0,'E'); put(10,0,'E');
+            put(4,6,'E'); put(5,6,'H'); put(6,6,'H'); put(7,6,'H'); put(8,6,'E');
+            if (phase) { put(0,3,'F'); put(0,2,'F'); put(12,3,'F'); put(12,2,'F'); }
+            else { put(0,4,'F'); put(12,4,'F'); }
+        } else if (sleepy) {
+            closed(true, true); zzz(11,3);
+        } else if (happy) {                               // wink and wave
+            closed(false, true); put(12,4,'F'); put(phase ? 13 : 12, 3, 'F');
+        } else if (phase) {                               // looks around
+            put(2,1,'W'); put(3,1,'E'); put(10,1,'W'); put(11,1,'E');
+        }
+    } else if (id == COMPANION_PENGUIN) {
+        static const char* const penguin[] = {".....NNNN.....","....NNNNNN....","....NEWWEN....","....NWOOWN....","...NNWWWWNN...","...N.WWWW.N...","....NWWWWN....",".....OO.OO...."};
+        static const char* const penguin_low[] = {"..............",".....NNNN.....","....NNNNNN....","....NWWWWN....","....NEOOEN....","...NNWWWWNN...","...NNWWWWNN...",".....OO.OO...."};
+        if (low) {                                        // head bowed, flippers down
+            load(penguin_low);
+            if (phase) { put(5,4,'W'); put(8,4,'W'); }
+            return;
+        }
+        load(penguin);
+        if (high) {                                       // beak open, flapping
+            put(6,4,'O'); put(7,4,'O'); put(3,5,'.'); put(10,5,'.');
+            if (phase) { put(3,4,'.'); put(10,4,'.'); put(3,3,'N'); put(2,2,'N'); put(10,3,'N'); put(11,2,'N'); }
+            else { put(2,4,'N'); put(11,4,'N'); }
+        } else if (sleepy) {
+            put(5,2,'W'); put(8,2,'W'); put(5,3,'E'); put(8,3,'E'); zzz(11,2);
+        } else if (happy) {                               // flipper wave
+            put(10,5,'.'); put(11, phase ? 3 : 4, 'N'); put(10,4,'N');
+        } else if (phase) {                               // waddles from foot to foot
+            put(5,7,'.'); put(9,7,'.');
+        }
+    } else if (id == COMPANION_OWL) {
+        static const char* const owl[] = {"..UU.....UU...","...UUUUUUU....","..UQQQUQQQU...","..UQEQUQEQU...","..UQQQYQQQU...","..UUUUYUUUU...","...UQUQUQU....","....YY.YY....."};
+        load(owl);
+        if (low) {                                        // tufts down, heavy lids
+            put(2,0,'.'); put(3,0,'.'); put(9,0,'.'); put(10,0,'.'); put(2,1,'U'); put(10,1,'U');
+            for (int x : {3, 4, 5, 7, 8, 9}) put(x,2,'U');
+            put(4,3,'Q'); put(8,3,'Q'); put(4,4,'E'); put(8,4,'E');
+            if (phase) { put(1,5,'U'); put(11,5,'U'); }
+        } else if (high) {                                // tufts up, "hoo!", wings flap
+            put(3,0,'U'); put(9,0,'U'); put(6,5,'E');
+            int y = phase ? 2 : 4, tip = phase ? 1 : 5;
+            put(1,y,'U'); put(0,tip,'U'); put(11,y,'U'); put(12,tip,'U');
+        } else if (sleepy) {
+            for (int x : {3, 4, 5, 7, 8, 9}) put(x,3,'E');
+            zzz(11,2);
+        } else if (happy) {                               // wink and wing wave
+            for (int x : {7, 8, 9}) put(x,3,'E');
+            put(11,4,'U'); put(12, phase ? 2 : 3, 'U');
+        } else if (phase) {                               // looks around
+            put(4,3,'Q'); put(8,3,'Q'); put(3,3,'E'); put(7,3,'E');
+        }
+    } else if (id == COMPANION_LION) {
+        static const char* const lion[] = {"...KKKKKK.....","..KKAKKAKK....",".KKAAAAAAKK...",".KAAEAAEAAK...","KKAAATTAAAKK..",".KAACCCCAAK...","..KAACCAAK....","...KKKKKK....."};
+        load(lion);
+        if (low) {                                        // ears flat, droopy eyes, frown
+            put(4,1,'K'); put(7,1,'K'); put(4,3,'T'); put(7,3,'T'); put(5,6,'E'); put(6,6,'E');
+            put(0,4,'.'); put(11,4,'.');
+            if (phase) { put(1,6,'K'); put(10,6,'K'); }
+        } else if (high) {                                // roar, mane bristles
+            put(5,5,'E'); put(6,5,'E'); put(5,6,'H'); put(6,6,'H');
+            static const int8_t spikes[2][6][2] = {{{1,0},{10,0},{0,6},{11,6},{0,2},{11,2}},
+                                                   {{0,1},{11,1},{0,7},{11,7},{5,0},{6,0}}};
+            for (const auto& s : spikes[phase]) put(s[0], s[1], 'K');
+        } else if (sleepy) {
+            put(4,3,'T'); put(7,3,'T'); zzz(11,3);
+        } else if (happy) {                               // happy squint, tongue, ear wiggle
+            put(4,3,'T'); put(7,3,'T'); put(5,6,'H'); put(6,6,'H');
+            if (phase) { put(4,1,'K'); put(7,1,'K'); }
+        } else if (phase) {                               // mane breathes
+            put(0,4,'.'); put(11,4,'.'); put(0,3,'K'); put(11,3,'K');
+        }
+    } else if (id == COMPANION_UNICORN) {
+        static const char* const unicorn[] = {"......W....X..","......WW..Y...",".....WWWWX....",".....WWEWWW...",".....WWWGWWWP.",".....WWWWWWP..",".....WWW......","....WWWW......"};
+        static const char rainbow[] = "HOYLBV";
+        static const int8_t mane[12][2] = {{5,1},{4,2},{4,3},{3,3},{4,4},{3,4},{4,5},{3,5},{4,6},{3,6},{3,7},{2,7}};
+        load(unicorn);
+        // Rainbow mane down the back of the neck; the colours flow with the phase.
+        int flow = low ? 0 : phase + (happy ? 2 * ((ms / 220) % 3) : 0);
+        auto paint = [&](int x, int y) { put(x, y, rainbow[(y + flow) % 6]); };
+        for (const auto& p : mane) paint(p[0], p[1]);
+        if (low) {                                        // head hangs, mane limp, eye down
+            char tmp[8][14]; memcpy(tmp, pet, sizeof(tmp)); memset(pet, '.', sizeof(tmp));
+            for (int y = 0; y < 7; ++y) for (int x = 0; x < 14; ++x) pet[y + 1][x] = tmp[y][x];
+            put(7,4,'W'); put(7,5,'E');
+            for (int y = 5; y < 8; ++y) put(2, y, rainbow[y % 6]);
+        } else if (high) {                                // mane flies out
+            static const int8_t extra[2][4][2] = {{{2,4},{2,5},{1,6},{2,6}}, {{2,3},{1,4},{2,4},{1,5}}};
+            for (const auto& p : extra[phase]) paint(p[0], p[1]);
+            put(7,2,'E');
+        } else if (sleepy) {
+            zzz(11,3);                                    // eyes stay open
+        }                                                 // hello: the mane flows faster
+    } else if (id == COMPANION_CRAB) {
+        static const char* const crab[] = {".c.c.W..W.c.c.",".ccc.k..k.ccc.","..c..k..k..c..","..cccccccccc..","..cccccccccc..","..cGcEccEcGc..","..kcccEEccck..",".k.k.k..k.k.k."};
+        static const char* const crab_low[] = {"..............",".....W..W.....",".....E..E.....","...cccccccc...",".cccccccccccc.",".ccccGcEEcGcc.","..kccEccEcck..",".k.k.k..k.k.k."};
+        auto claws = [&](bool open_left, bool open_right) { put(2,0, open_left ? '.' : 'c'); put(11,0, open_right ? '.' : 'c'); };
+        auto legs_step = [&]() {
+            for (int x : {1, 3, 5, 6, 7, 8, 10, 12}) put(x,7,'.');
+            for (int x : {2, 4, 9, 11}) put(x,7,'k');
+        };
+        if (low) {                                        // eyes sink, claws rest on the ground
+            load(crab_low);
+            if (phase) { put(5,1,'c'); put(8,1,'c'); put(5,2,'k'); put(8,2,'k'); }
+            return;
+        }
+        load(crab);
+        if (high) {                                       // snap snap, bubbles, scuttling
+            put(6,5,'E'); put(7,5,'E'); put(6,6,'H'); put(7,6,'H');
+            claws(!phase, !phase);
+            if (phase) { put(6,1,'B'); put(7,0,'B'); legs_step(); }
+            else { put(7,2,'B'); put(6,0,'B'); }
+        } else if (sleepy) {                              // eyes pulled in
+            claws(false, false);
+            put(5,0,'.'); put(8,0,'.'); put(5,1,'c'); put(8,1,'c');
+            int step = (ms / 900) % 2; put(6 + step, 1 - step, 'Z');
+        } else if (happy) {                               // wink, claps its pincers
+            put(8,0,'k'); claws(phase, phase);
+            if (phase) legs_step();
+        } else {                                          // clicks its pincers, shuffles
+            claws(!phase, phase);
+            if (phase) legs_step();
+        }
+    }
 }
 
 // Pure renderer shared by firmware and the parity-tested web preview. Draw the
@@ -161,6 +345,8 @@ inline void companion_frame(int id, uint32_t ms, bool sleepy, bool happy, char (
                 }
             }
         }
+    } else if (id >= COMPANION_CAT) {
+        companion_friend(id, ms, phase, sleepy, happy, range, pet);
     } else {
         sprite(newcomers[id - COMPANION_TURTLE][range], 8, 0, 0);
         if (id == COMPANION_TURTLE) {

@@ -181,8 +181,15 @@ export function suspendState(snap) {
 
 // A new infusion set's tubing is filled from the reservoir while the pump is
 // suspended: the reservoir drops by several units that no bolus or basal explains.
-// (Seen on 11 Oct: -9.2 U in 4 min, suspended, 0.05 U recorded.)
+// (Seen on 11 Oct: -9.2 U in 4 min, suspended, 0.05 U recorded; 14 Oct: -9.6 U,
+// suspended, IOB 1.40 -> 1.25.)
 export const SET_FILL_MIN_UNITS = 5;
+// The suspend can fall entirely between two polls. Then the fill is only accepted
+// when the polls are close together and IOB did not rise: a fill adds nothing to
+// IOB, a bolus whose record has not reached CareLink yet does. Over a longer gap a
+// bolus has partly worn off in IOB, so it could pass for a fill.
+export const SET_FILL_MAX_GAP_MS = 12 * MIN;
+export const SET_FILL_MAX_IOB_RISE = 0.3;
 
 /** Time of a tubing fill (= set change) between the previous and this snapshot, or null. */
 export function detectSetChange(prev, snap, pd) {
@@ -190,13 +197,20 @@ export function detectSetChange(prev, snap, pd) {
   const from = prev.device_data_at || prev.fetched_at;
   const to = snap.device_data_at || snap.fetched_at;
   if (!from || !to || to <= from) return null;
+  const drop = prev.pump.reservoir_units - snap.pump.reservoir_units;
+  if (drop < SET_FILL_MIN_UNITS) return null;
+  const recorded = insulinRecorded(pd, from - 2 * MIN, to, snap.offset_ms || 0);
+  if (drop - recorded < SET_FILL_MIN_UNITS) return null;
   const suspended = prev.pump.suspended === true || snap.pump.suspended === true
     || snap.banners.some((b) => b.type === 'DELIVERY_SUSPEND')
     || (prev.banners || []).some((b) => b.type === 'DELIVERY_SUSPEND');
-  if (!suspended) return null;
-  const drop = prev.pump.reservoir_units - snap.pump.reservoir_units;
-  const recorded = insulinRecorded(pd, from - 2 * MIN, to, snap.offset_ms || 0);
-  return drop - recorded >= SET_FILL_MIN_UNITS ? to : null;
+  if (suspended) return to;
+  // No suspend seen: suspended, filled and resumed between two polls.
+  const iobFrom = prev.iob && Number.isFinite(prev.iob.units) ? prev.iob.units : null;
+  const iobTo = snap.iob && Number.isFinite(snap.iob.units) ? snap.iob.units : null;
+  if (iobFrom === null || iobTo === null) return null;
+  if (to - from > SET_FILL_MAX_GAP_MS) return null;
+  return iobTo - iobFrom < SET_FILL_MAX_IOB_RISE ? to : null;
 }
 
 /** Build the compact snapshot stored in KV from patientData. */

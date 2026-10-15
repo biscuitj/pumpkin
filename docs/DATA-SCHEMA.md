@@ -232,7 +232,7 @@ remembered (`snapshot.latches`) and stay in `warnings` until one of these happen
 
 | id | until |
 |---|---|
-| `set` | a tubing fill: while the pump is suspended, the reservoir drops ≥ 5 U more than the recorded boluses and basal (on 11 Oct: −9.2 U in 4 min) |
+| `set` | a tubing fill: the reservoir drops ≥ 5 U more than the recorded boluses and basal, while the pump is suspended (on 11 Oct: −9.2 U in 4 min) or, with no suspend seen, between pump readings ≤ 12 min apart with IOB up by < 0.3 U (on 14 Oct: −9.6 U, IOB 1.40 → 1.25) |
 | `reservoir` | the reservoir goes up by ≥ 5 U (a new reservoir) |
 | `battery` | the pump battery % goes up |
 | `sensor` | sensor hours left go up by ≥ 12 (a new sensor) |

@@ -27,7 +27,7 @@ A separate screen that only appears in the rotation while there is something to 
 | `reservoir` | reservoir alert (remembered until the reservoir goes up ≥ 5 U) | reservoir · **next: green 0x34A853** (now red) | 5 s |
 | `bg` | BG required (remembered until a finger-prick BG, or until SmartGuard is back in Auto Basal) | red blood drop | 5 s |
 | `sensor` | sensor alert (remembered until sensor time left goes up ≥ 12 h) | done: `SENSOR VERVANGEN` scrolls, red · **next: static `SENSOR` in narrow 4×7 letters, yellow 0xFFE000** | scroll once · **5 s** |
-| `set` | set change reminder (remembered until a tubing fill: suspended + reservoir −≥ 5 U unexplained) | done: `SET VERVANGEN` scrolls, red · **next: static `SET` in the normal font, yellow 0xFFE000** | scroll once · **5 s** |
+| `set` | set change reminder (remembered until a tubing fill: reservoir −≥ 5 U unexplained, while suspended or with no IOB rise) | done: `SET VERVANGEN` scrolls, red · **next: static `SET` in the normal font, yellow 0xFFE000** | scroll once · **5 s** |
 
 How the screen behaves:
 - **Several alerts:** they play one after another, then the rotation moves on, whatever the cycle time is.

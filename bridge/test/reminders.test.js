@@ -10,11 +10,12 @@ const iso = (ms) => new Date(ms).toISOString();
 const TOKENS = () => ({ access_token: jwt(NOW + 100 * HOUR), refresh_token: 'rt-0', client_id: 'client', refreshed_at: NOW });
 
 /** patientData with the given pump state; notification and marker times are absolute. */
-function pdAt(t, { mode = 'AUTO_BASAL', reservoir = 113.5, battery = 75, sensorHours = 146, active = [], cleared = [], markers = [], suspended = false, banners, extraMarkers = [] } = {}) {
+function pdAt(t, { mode = 'AUTO_BASAL', reservoir = 113.5, battery = 75, sensorHours = 146, active = [], cleared = [], markers = [], suspended = false, banners, extraMarkers = [], iob = 1.35 } = {}) {
   const shiftIso = iso;
   return patientData({
     extra: {
       reservoirRemainingUnits: reservoir,
+      activeInsulin: iob === null ? null : { amount: iob, datetime: iso(t - 20000), precision: 'MAX', kind: 'Insulin' },
       pumpSuspended: suspended,
       therapyAlgorithmState: { autoModeShieldState: mode },
       pumpBannerState: banners || (suspended ? [{ type: 'DELIVERY_SUSPEND' }] : []),
@@ -79,6 +80,41 @@ test('no false set change: a big bolus, or a short suspend without a fill', asyn
     [T + 35 * MIN, { reservoir: 91.5 }],
   ]);
   assert.deepEqual(results.map((r) => r.warnings), [['set'], ['set'], ['suspended', 'set'], ['set']]);
+});
+
+test('set change detected when the suspend falls between two polls: drop, no IOB rise', async () => {
+  const T = NOW - 3 * HOUR;
+  const { results } = await polls([
+    [T, { reservoir: 45.3, iob: 1.4, active: [[109, T]] }],
+    [T + 5 * MIN, { reservoir: 35.7, iob: 1.25 }],                                    // 14 Oct numbers, suspend not seen
+  ]);
+  assert.deepEqual(results.map((r) => r.warnings), [['set'], []]);
+  assert.equal(results[1].snapshot.set_change_at, T + 5 * MIN - 20000);
+});
+
+test('no false set change without a suspend: unrecorded bolus, long gap, or no IOB', async () => {
+  const T = NOW - 3 * HOUR;
+  const run = (steps) => polls(steps).then(({ results }) => results.map((r) => r.warnings));
+  // 6 U bolus whose record has not reached CareLink yet: IOB jumps.
+  assert.deepEqual(await run([
+    [T, { reservoir: 100, iob: 0.5, active: [[109, T]] }],
+    [T + 5 * MIN, { reservoir: 94, iob: 6.3 }],
+  ]), [['set'], ['set']]);
+  // Same drop over a 60 min gap: the bolus has worn off in IOB, so not trusted.
+  assert.deepEqual(await run([
+    [T, { reservoir: 100, iob: 0.5, active: [[109, T]] }],
+    [T + 60 * MIN, { reservoir: 94, iob: 0.4 }],
+  ]), [['set'], ['set']]);
+  // No IOB in the data: not trusted.
+  assert.deepEqual(await run([
+    [T, { reservoir: 100, iob: null, active: [[109, T]] }],
+    [T + 5 * MIN, { reservoir: 90, iob: null }],
+  ]), [['set'], ['set']]);
+  // Drop below 5 U: not a fill.
+  assert.deepEqual(await run([
+    [T, { reservoir: 100, iob: 1, active: [[109, T]] }],
+    [T + 5 * MIN, { reservoir: 95.2, iob: 0.9 }],
+  ]), [['set'], ['set']]);
 });
 
 test('reservoir reminder still ends on a new reservoir', async () => {

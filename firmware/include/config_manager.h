@@ -72,7 +72,7 @@ struct AppConfig {
 
     // Pixel companion display
     bool ambient_enabled;      // include the companion in navigation/auto-cycle, default false
-    int ambient_character;     // 0=Pip, 1=Boo, 2=Mochi, 3=Sprout, 4=Pebble, 5=Inky, 6=Maple, 7=Patch; default Patch
+    int ambient_character;     // 0=Pip, 1=Boo, 2=Mochi, 3=Sprout, 4=Pebble, 5=Inky, 6=Maple, 7=Patch, 8=Toffee, 9=Kiko, 10=Domino, 11=Hoot, 12=Leo, 13=Stella, 14=Kobi; default Patch
     int ambient_style;         // 0=companion + text, 1=companion + icon, 2=centered companion
     bool ambient_use_glucose_colors; // use configured glucose colors for status, default false
     bool ambient_show_tir;     // text style: show 24h time in range (bridge) instead of LOW/OK/HIGH

@@ -12,6 +12,8 @@ What's different from SugarClock:
 - **Bridge screens:** pump alerts (icons), sport mode, active insulin, clear
   pump alerts from the web page.
 - **Patch the pumpkin:** a pumpkin display pet, the default on a new clock.
+- **Seven more pets:** Toffee (cat), Kiko (frog), Domino (penguin), Hoot (owl),
+  Leo (lion), Stella (unicorn) and Kobi (crab).
 - **Leaner:** no weather screen, push notifications or system monitor.
 - **Night mode Full Mute:** black screen and a silent buzzer during night hours.
 - **Clocks on one network:** clock names, `name.local` addresses, a clock list

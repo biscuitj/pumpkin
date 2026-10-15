@@ -16,10 +16,36 @@ How versions work:
 
 ## [Unreleased]
 
-Safety for developers with more than one board connected: firmware only goes
-to the device you meant. The bridge is unchanged.
+## [0.12.0] - 2026-10-14
+
+The set change reminder also clears when the pump was suspended, filled and
+resumed between two polls. The firmware is unchanged apart from the version.
+
+### Changed
+- Bridge: **set change detection without a seen suspend.** Until now a tubing
+  fill only counted when a poll caught the pump suspended. With polls about
+  5 minutes apart, a quick set change could fall between two polls and the
+  `set` reminder stayed on. Now a reservoir drop of ≥ 5 U that no recorded
+  bolus or basal explains also counts without a suspend, if the two pump
+  readings are at most 12 minutes apart, both have active insulin, and IOB rose
+  by less than 0.3 U. A fill adds nothing to IOB; a bolus whose record hasn't
+  reached CareLink yet does. Over a longer gap a bolus may have worn off in
+  IOB, so then a suspend is still required. On 14 Oct: −9.6 U in 5 min, IOB
+  1.40 → 1.25.
+
+## [0.11.0] - 2026-10-13
+
+Seven new display pets, and firmware only goes to the device you meant: a USB
+guard for developers and a check on every uploaded update. The bridge is
+unchanged apart from the version.
 
 ### Added
+- Firmware: **seven new display pets** (ids `8`–`14`): Toffee the cat, Kiko the
+  frog, Domino the penguin, Hoot the owl, Leo the lion, Stella the unicorn
+  (rainbow mane) and Kobi the crab. Each has its own in-range, low, high,
+  resting and hello poses, same as the others; resting pets show a small
+  drifting "z". Same pixels in the web preview (parity-tested). Clocks keep
+  the pet they have.
 - Firmware: **USB guard** (`scripts/upload_guard.py`) before `pio run -t upload`,
   `uploadfs` and `erase`. It picks the single CH340 device that is connected
   (or the `--upload-port` you give), reads its chip, MAC, flash size and clock
@@ -357,6 +383,8 @@ Multiple clocks on one network. Firmware only; the Worker is unchanged.
 - Firmware: "Show Trend Screen" toggle (`trend_en`).
 
 [Unreleased]: #unreleased
+[0.12.0]: #0120---2026-10-14
+[0.11.0]: #0110---2026-10-13
 [0.10.0]: #0100---2026-10-12
 [0.9.1]: #091---2026-10-12
 [0.9.0]: #090---2026-10-12
