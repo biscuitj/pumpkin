@@ -169,6 +169,21 @@ test('second upload with nothing new posts nothing; later markers are picked up'
   assert.equal(ns.db.treatments.filter((t) => t.eventType === 'Correction Bolus').length, 1);
 });
 
+test('a marker whose time wobbles by a second between polls is not uploaded again', async () => {
+  const ns = fakeNightscout();
+  const env = withKv();
+  const bolus = (ms) => ({ type: 'INSULIN', dateTime: new Date(NOW - 5 * MIN + ms).toISOString(), activationType: 'AUTOCORRECTION', deliveredFastAmount: 0.125 });
+  for (const [i, ms] of [0, 1000, -1000, 2000].entries()) {
+    const pd = pdWith({ markers: [bolus(ms)] });
+    await uploadToNightscout(env, { snapshot: buildSnapshot(pd, NOW + i * MIN), patientData: pd }, NOW + i * MIN, ns.handler);
+  }
+  assert.equal(ns.db.treatments.filter((t) => t.eventType === 'Correction Bolus').length, 1);
+  // a real next auto-correction five minutes later still goes up
+  const pd = pdWith({ markers: [bolus(0), bolus(5 * MIN)] });
+  await uploadToNightscout(env, { snapshot: buildSnapshot(pd, NOW + 6 * MIN), patientData: pd }, NOW + 6 * MIN, ns.handler);
+  assert.equal(ns.db.treatments.filter((t) => t.eventType === 'Correction Bolus').length, 2);
+});
+
 test('upload token instead of API secret goes in the query', async () => {
   const ns = fakeNightscout();
   const pd = patientData();

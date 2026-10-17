@@ -16,6 +16,14 @@ How versions work:
 
 ## [Unreleased]
 
+### Added
+- Bridge: **sensor warning before the sensor ends.** The pump only alerts when
+  the sensor has expired, and a new sensor needs about 2 h to warm up. The
+  `sensor` warning now also comes on when the sensor has `SENSOR_WARN_MIN`
+  minutes or less left (default 180, `0` turns it off), and goes away with
+  the new sensor. Not during a warm-up, and not without a live sensor value.
+  On 16 Oct: 44 min left and no warning on the clock.
+
 ## [0.12.0] - 2026-10-14
 
 The set change reminder also clears when the pump was suspended, filled and

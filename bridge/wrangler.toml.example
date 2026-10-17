@@ -34,6 +34,7 @@ CARELINK_ENABLED = "true"
 CARELINK_COUNTRY = "BE"       # country of the CareLink account (picks the region)
 CARELINK_LAG_SEC = "75"       # a new reading is usually in CareLink this long after sensor time
 PUMP_MAX_AGE_MIN = "15"       # pump extras (IOB, alerts, temp target …) older than this are left out
+SENSOR_WARN_MIN = "180"       # sensor warning this many minutes before it ends (a new one warms up ~2 h); 0 = off
 # Optional overrides when auto-detection fails:
 # CARELINK_USERNAME = "care-partner-username"
 # CARELINK_PATIENT_USERNAME = "patient-username"
@@ -60,3 +61,7 @@ POLL_MARGIN_SEC = "5"
 
 # Freshness: older than this -> HTTP 503, the clock shows stale/no data
 STALE_MAX_MIN = "30"
+
+# Keep console.log output (e.g. reminder on/done lines) in the dashboard's Logs for a few days.
+[observability]
+enabled = true

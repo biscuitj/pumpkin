@@ -15,7 +15,7 @@
 
 import { cleanEntries, computeTrend, computeTir, extractIob, nextPollSec } from './logic.js';
 import { pollOnce, shouldFetch, nextDue, nextStatus } from './carelink.js';
-import { mapCareLinkTrend, tempTargetFrom, activeLatches, suspendState, alertShort } from './carelink-data.js';
+import { mapCareLinkTrend, tempTargetFrom, activeLatches, suspendState, alertShort, sensorExpiring } from './carelink-data.js';
 import { uploadEnabled, uploadToNightscout } from './nightscout-upload.js';
 
 const MIN = 60 * 1000;
@@ -42,6 +42,7 @@ function config(env) {
     carelinkEnabled: Boolean(env.CARELINK) && String(env.CARELINK_ENABLED || 'true').toLowerCase() !== 'false',
     carelinkLagSec: num(env.CARELINK_LAG_SEC, 75),
     pumpMaxAgeMin: num(env.PUMP_MAX_AGE_MIN, 15),
+    sensorWarnMin: num(env.SENSOR_WARN_MIN, 180),
     nsUpload: uploadEnabled(env),
     lang: String(env.LANG || 'en').toLowerCase() === 'nl' ? 'nl' : 'en',
   };
@@ -244,9 +245,11 @@ const WARNING_ORDER = ['suspended', 'warning', 'battery', 'reservoir', 'bg', 'se
  * reminders that were dismissed on the pump but not acted on yet (latches).
  * `suspend` (from suspendState): a pump stopped by hand shows the pause icon,
  * a SmartGuard auto-suspend the general warning.
+ * `sensorDue` (from sensorExpiring): the sensor runs out soon, before the pump says so.
  */
-export function clockWarnings(alerts, latchIds = [], suspend = null) {
+export function clockWarnings(alerts, latchIds = [], suspend = null, sensorDue = false) {
   const ids = new Set(latchIds);
+  if (sensorDue) ids.add('sensor');
   for (const a of alerts || []) {
     const id = WARNING_FOR[a.category];
     if (id) ids.add(id);
@@ -271,7 +274,8 @@ function pumpExtras(snapshot, cfg, now) {
     fresh: true,
     iob: iobFresh ? snapshot.iob.units : null,
     alert: headline.length ? alertShort(headline[0], cfg.lang) : '',
-    warnings: clockWarnings(snapshot.alerts, activeLatches(snapshot.latches), suspendState(snapshot)),
+    warnings: clockWarnings(snapshot.alerts, activeLatches(snapshot.latches), suspendState(snapshot),
+      sensorExpiring(snapshot.sensor, cfg.sensorWarnMin)),
     alerts: headline.map((a) => ({
       short: alertShort(a, cfg.lang), text: a.text, category: a.category,
       since: a.since ? Math.floor(a.since / 1000) : null, silenced: a.silenced,
@@ -321,7 +325,9 @@ function careLinkDebug(cl) {
       cleared: (s.cleared || []).map((c) => ({ ...c, triggered: c.triggered ? new Date(c.triggered).toISOString() : null,
         cleared_at: c.cleared_at ? new Date(c.cleared_at).toISOString() : null })),
       reminders: Object.fromEntries(Object.entries(s.latches || {}).map(([id, l]) => [id, {
-        ...l, since: new Date(l.since).toISOString(), done_at: l.done_at ? new Date(l.done_at).toISOString() : undefined }])),
+        ...l, since: new Date(l.since).toISOString(), done_at: l.done_at ? new Date(l.done_at).toISOString() : undefined,
+        prev: l.prev ? { ...l.prev, since: new Date(l.prev.since).toISOString(),
+          done_at: l.prev.done_at ? new Date(l.prev.done_at).toISOString() : undefined } : undefined }])),
       banners: s.banners,
       suspended: suspendState(s),
       set_change_at: s.set_change_at ? new Date(s.set_change_at).toISOString() : null,

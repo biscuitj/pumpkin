@@ -257,6 +257,13 @@ export function buildSnapshot(pd, fetchedAtMs) {
   const ai = pd.activeInsulin;
   const iobUnits = ai && Number.isFinite(Number(ai.amount)) && Number(ai.amount) >= 0 ? Number(ai.amount) : null;
   const num = (v) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : null);
+  // With the pump out of the phone's range, CareLink keeps sending the pump fields but
+  // they are not current (often all 0). Counting those as readings let a reminder see
+  // a "new reservoir/battery" as soon as the real value came back.
+  const pumpLive = pd.conduitMedicalDeviceInRange !== false
+    && !(num(pd.reservoirRemainingUnits) === 0 && num(pd.pumpBatteryLevelPercent ?? pd.medicalDeviceBatteryLevelPercent) === 0);
+  const sensorLive = pumpLive && pd.conduitSensorInRange !== false;
+  const pumpNum = (v) => (pumpLive ? num(v) : null);
 
   return {
     v: 1,
@@ -273,17 +280,17 @@ export function buildSnapshot(pd, fetchedAtMs) {
     bg_at: lastFingerBgAt(pd, offset),
     banners,
     pump: {
-      reservoir_units: num(pd.reservoirRemainingUnits),
-      reservoir_pct: num(pd.reservoirLevelPercent),
-      battery_pct: num(pd.pumpBatteryLevelPercent ?? pd.medicalDeviceBatteryLevelPercent),
+      reservoir_units: pumpNum(pd.reservoirRemainingUnits),
+      reservoir_pct: pumpNum(pd.reservoirLevelPercent),
+      battery_pct: pumpNum(pd.pumpBatteryLevelPercent ?? pd.medicalDeviceBatteryLevelPercent),
       suspended: pd.pumpSuspended ?? pd.medicalDeviceSuspended ?? null,
       in_range: pd.conduitMedicalDeviceInRange ?? null,
       auto_mode: pd.therapyAlgorithmState ? pd.therapyAlgorithmState.autoModeShieldState || null : null,
       system_status: pd.systemStatusMessage || null,
     },
     sensor: {
-      hours_left: num(pd.sensorDurationHours),
-      minutes_left: num(pd.sensorDurationMinutes),
+      hours_left: sensorLive ? num(pd.sensorDurationHours) : null,
+      minutes_left: sensorLive ? num(pd.sensorDurationMinutes) : null,
       state: pd.sensorState || null,
       in_range: pd.conduitSensorInRange ?? null,
     },
@@ -338,15 +345,19 @@ function latchResolved(id, latch, snap) {
   // A set change doesn't need a new reservoir, but its tubing is always filled.
   if (id === 'set') return Boolean(snap.set_change_at && snap.set_change_at > latch.since);
   if (now === null || latch.low === null || latch.low === undefined) return false;
-  if (id === 'reservoir') return now >= latch.low + 5;                  // new reservoir filled
-  if (id === 'battery') return now > latch.low;                         // new battery
-  if (id === 'sensor') return now >= latch.low + 12;                    // new sensor
+  // Measured from the lowest value seen, but also above the value when the reminder
+  // started: a bad low reading (seen overnight 15-16 Oct) must not make the normal
+  // value that follows look like a new reservoir/battery/sensor.
+  const start = latch.start ?? latch.low;
+  if (id === 'reservoir') return now >= Math.max(latch.low, start) + 5;  // new reservoir filled
+  if (id === 'battery') return now > Math.max(latch.low, start);         // new battery
+  if (id === 'sensor') return now >= Math.max(latch.low, start) + 12;    // new sensor
   return false;
 }
 
 /**
  * Update the reminder latches from a fresh snapshot.
- * latches: { [id]: { since, code, low, done? } }; done entries stop the same
+ * latches: { [id]: { since, code, low, start, done? } }; done entries stop the same
  * notification (same code, trigger time within 2 min) from re-latching and are
  * dropped once they expire.
  */
@@ -367,14 +378,22 @@ export function updateLatches(prev, snap, now) {
     if (!id) continue;
     const cur = out[id];
     const same = cur && cur.code === src.code && Math.abs(cur.since - src.at) <= 2 * MIN;
-    if (cur && (!cur.done || same)) continue;  // already on, or this very notification was handled
-    out[id] = { since: src.at, code: src.code, low: latchMeasure(id, snap) };
+    // Alerts the swap itself raises ("battery removed", "insert battery", "no reservoir")
+    // fire before the data shows the new part: they belong to the reminder just handled.
+    // Re-latching on them started a reminder at the new value that could never end (16 Oct).
+    const before = cur && cur.done && cur.done_at && src.at <= cur.done_at;
+    if (cur && (!cur.done || same || before)) continue;  // already on, or this episode was handled
+    // Keep how the previous one ended: once replaced it is otherwise gone from /debug.
+    const prevDone = cur ? { since: cur.since, code: cur.code, low: cur.low, done_at: cur.done_at, how: cur.how, value: cur.value } : undefined;
+    const m0 = latchMeasure(id, snap);
+    out[id] = { since: src.at, code: src.code, low: m0, start: m0, ...(prevDone ? { prev: prevDone } : {}) };
   }
   for (const [id, l] of Object.entries(out)) {
     if (l.done) continue;
     const m = latchMeasure(id, snap);
     if (m !== null && (l.low === null || l.low === undefined || m < l.low)) l.low = m;
-    if (latchResolved(id, l, snap)) out[id] = { ...l, done: true, done_at: now, how: 'pump data' };
+    if (m !== null && (l.start === null || l.start === undefined)) l.start = m;  // first real reading
+    if (latchResolved(id, l, snap)) out[id] = { ...l, done: true, done_at: now, how: 'pump data', value: m };
   }
   return out;
 }
@@ -382,6 +401,20 @@ export function updateLatches(prev, snap, now) {
 /** Ids of reminders still waiting for the action. */
 export function activeLatches(latches) {
   return Object.entries(latches || {}).filter(([, l]) => !l.done).map(([id]) => id);
+}
+
+/**
+ * Sensor close to its end: time left at or below warnMin minutes. A new sensor
+ * needs about 2 h to warm up before it sends values, so the warning has to come
+ * well before the old one stops. Not during a warm-up (that is the new sensor),
+ * and not without a live value (pump or sensor out of range).
+ */
+export function sensorExpiring(sensor, warnMin) {
+  if (!sensor || !(warnMin > 0)) return false;
+  if (String(sensor.state || '').includes('WARM')) return false;
+  const hours = sensor.hours_left;
+  const minutes = sensor.minutes_left ?? (hours === null || hours === undefined ? null : hours * 60);
+  return minutes !== null && minutes <= warnMin;
 }
 
 /** The parts that matter for "did anything change" (decides whether to write KV). */

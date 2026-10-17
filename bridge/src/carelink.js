@@ -274,6 +274,11 @@ export async function pollOnce(env, now, fetchImpl = fetch) {
   // Last detected set change (tubing fill) is carried from snapshot to snapshot.
   snapshot.set_change_at = detectSetChange(prev, snapshot, result.patientData) || (prev && prev.set_change_at) || null;
   snapshot.latches = updateLatches(prev && prev.latches, snapshot, now);
+  for (const [id, l] of Object.entries(snapshot.latches)) {
+    const was = prev && prev.latches && prev.latches[id];
+    if (l.done && !(was && was.done)) console.log(`reminder ${id} done (${l.how}): low ${l.low}, now ${l.value}, pump in range ${snapshot.pump.in_range}`);
+    else if (!l.done && !(was && !was.done)) console.log(`reminder ${id} on: code ${l.code}, low ${l.low}`);
+  }
   const changed = !prev || snapshotFingerprint(prev) !== snapshotFingerprint(snapshot);
   const wrote = changed || now - (prev.fetched_at || 0) > SNAPSHOT_REWRITE_MS;
   if (wrote) await kv.put('snapshot', JSON.stringify(snapshot));

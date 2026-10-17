@@ -10,11 +10,12 @@ const iso = (ms) => new Date(ms).toISOString();
 const TOKENS = () => ({ access_token: jwt(NOW + 100 * HOUR), refresh_token: 'rt-0', client_id: 'client', refreshed_at: NOW });
 
 /** patientData with the given pump state; notification and marker times are absolute. */
-function pdAt(t, { mode = 'AUTO_BASAL', reservoir = 113.5, battery = 75, sensorHours = 146, active = [], cleared = [], markers = [], suspended = false, banners, extraMarkers = [], iob = 1.35 } = {}) {
+function pdAt(t, { mode = 'AUTO_BASAL', reservoir = 113.5, battery = 75, sensorHours = 146, active = [], cleared = [], markers = [], suspended = false, banners, extraMarkers = [], iob = 1.35, inRange = true } = {}) {
   const shiftIso = iso;
   return patientData({
     extra: {
       reservoirRemainingUnits: reservoir,
+      conduitMedicalDeviceInRange: inRange,
       activeInsulin: iob === null ? null : { amount: iob, datetime: iso(t - 20000), precision: 'MAX', kind: 'Insulin' },
       pumpSuspended: suspended,
       therapyAlgorithmState: { autoModeShieldState: mode },
@@ -125,6 +126,55 @@ test('reservoir reminder still ends on a new reservoir', async () => {
     [T + 60 * MIN, { reservoir: 160 }],
   ]);
   assert.deepEqual(results.map((r) => r.warnings), [['reservoir'], ['reservoir'], []]);
+});
+
+test('reservoir reminder survives pump readings while out of range or zeroed', async () => {
+  const T = NOW - 3 * HOUR;
+  const { results } = await polls([
+    [T, { reservoir: 15, active: [[105, T]] }],
+    [T + 20 * MIN, { reservoir: 14.6, cleared: [[105, T, T + 10 * MIN]] }],  // dismissed on the pump
+    [T + 30 * MIN, { reservoir: 0, battery: 0, inRange: false }],          // night: pump out of range
+    [T + 40 * MIN, { reservoir: 0, battery: 0 }],                          // zeroed record, flag still true
+    [T + 50 * MIN, { reservoir: 14.1 }],                                   // back: same reservoir
+  ]);
+  assert.deepEqual(results.map((r) => r.warnings), [['reservoir'], ['reservoir'], ['reservoir'], ['reservoir'], ['reservoir']]);
+  assert.equal(results[2].snapshot.pump.reservoir_units, null);
+  assert.equal(results[4].snapshot.latches.reservoir.low, 14.1);
+});
+
+test('reservoir reminder survives any bad low reading, even with the pump in range', async () => {
+  const T = NOW - 3 * HOUR;
+  const { results } = await polls([
+    [T, { reservoir: 16.2, active: [[105, T]] }],
+    [T + 20 * MIN, { reservoir: 15.9, cleared: [[105, T, T + 10 * MIN]] }],
+    [T + 30 * MIN, { reservoir: 1.5 }],                                    // glitch, nothing else odd
+    [T + 40 * MIN, { reservoir: 15.7 }],                                   // normal again: no refill
+    [T + 90 * MIN, { reservoir: 82 }],                                     // real refill
+  ]);
+  assert.deepEqual(results.map((r) => r.warnings), [['reservoir'], ['reservoir'], ['reservoir'], ['reservoir'], []]);
+  assert.equal(results[4].snapshot.latches.reservoir.value, 82);
+});
+
+test('battery swap: the "battery removed" alarm it raises does not restart the reminder', async () => {
+  const T = NOW - 3 * HOUR;
+  const { results } = await polls([
+    [T, { battery: 25, active: [[104, T]] }],
+    [T + 10 * MIN, { battery: 25, cleared: [[104, T, T + MIN]] }],
+    [T + 60 * MIN, { battery: 100, cleared: [[104, T, T + MIN], [84, T + 55 * MIN, T + 57 * MIN]] }],  // swapped
+    [T + 65 * MIN, { battery: 100, cleared: [[104, T, T + MIN], [84, T + 55 * MIN, T + 57 * MIN]] }],
+  ]);
+  assert.deepEqual(results.map((r) => r.warnings), [['battery'], ['battery'], [], []]);
+  assert.equal(results[3].snapshot.latches.battery.done, true);
+});
+
+test('a new battery alert after the swap still starts a reminder', async () => {
+  const T = NOW - 3 * HOUR;
+  const { results } = await polls([
+    [T, { battery: 25, active: [[104, T]] }],
+    [T + 60 * MIN, { battery: 100 }],
+    [T + 120 * MIN, { battery: 25, active: [[104, T + 118 * MIN]] }],
+  ]);
+  assert.deepEqual(results.map((r) => r.warnings), [['battery'], [], ['battery']]);
 });
 
 test('dismissed between two polls: picked up from the cleared history', async () => {

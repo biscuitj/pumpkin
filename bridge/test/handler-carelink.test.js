@@ -196,6 +196,25 @@ test('clock warnings: categories map to icons/texts, deduped, priority order, gl
     ['battery', 'bg']);
   assert.deepEqual(clockWarnings([a('calibration'), a('sensor_signal'), a('set_connect')]), ['warning']);
   assert.deepEqual(clockWarnings([]), []);
+  assert.deepEqual(clockWarnings([a('battery_now')], [], null, true), ['battery', 'sensor']); // sensor running out
+});
+
+test('sensor warning 3 h before the sensor ends (default), not during warm-up, SENSOR_WARN_MIN overrides', async () => {
+  const at = (extra) => memoryKV({ tokens: TOKENS(), snapshot: buildSnapshot(patientData({ extra }), NOW - 2 * MIN) });
+  // 16 Oct: 189 min left, no pump alert yet
+  assert.deepEqual((await clock(envWith(at({ sensorDurationHours: 3, sensorDurationMinutes: 189 })))).body.warnings, []);
+  assert.deepEqual((await clock(envWith(at({ sensorDurationHours: 3, sensorDurationMinutes: 180 })))).body.warnings, ['sensor']);
+  assert.deepEqual((await clock(envWith(at({ sensorDurationHours: 0, sensorDurationMinutes: 44 })))).body.warnings, ['sensor']);
+  // minutes missing: whole hours count
+  assert.deepEqual((await clock(envWith(at({ sensorDurationHours: 2 })))).body.warnings, ['sensor']);
+  assert.deepEqual((await clock(envWith(at({ sensorDurationHours: 31 })))).body.warnings, []);
+  // a new sensor warming up, or no live sensor value
+  assert.deepEqual((await clock(envWith(at({ sensorDurationHours: 0, sensorDurationMinutes: 0, sensorState: 'WARM_UP' })))).body.warnings, []);
+  assert.deepEqual((await clock(envWith(at({ sensorDurationHours: 0, sensorDurationMinutes: 44, conduitSensorInRange: false })))).body.warnings, []);
+  // configurable; 0 turns it off
+  const kv = at({ sensorDurationHours: 3, sensorDurationMinutes: 230 });
+  assert.deepEqual((await clock({ ...envWith(kv), SENSOR_WARN_MIN: '240' })).body.warnings, ['sensor']);
+  assert.deepEqual((await clock({ ...envWith(at({ sensorDurationHours: 0, sensorDurationMinutes: 44 })), SENSOR_WARN_MIN: '0' })).body.warnings, []);
 });
 
 test('without Nightscout: CareLink alone serves the clock, and nothing calls Nightscout', async () => {

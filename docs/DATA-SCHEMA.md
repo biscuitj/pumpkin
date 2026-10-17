@@ -220,7 +220,7 @@ deduplicated, in priority order, and `[]` when the pump data is old.
 | `battery` | battery_now, battery_low | light blue battery |
 | `reservoir` | reservoir_empty, reservoir_low | green reservoir |
 | `bg` | bg_required | red blood drop |
-| `sensor` | sensor_change | `SENSOR` (narrow letters), yellow |
+| `sensor` | sensor_change; also from `SENSOR_WARN_MIN` (default 180) minutes before the sensor ends, not during a warm-up | `SENSOR` (narrow letters), yellow |
 | `set` | set_change | `SET`, yellow |
 
 The clock ignores ids it doesn't know.

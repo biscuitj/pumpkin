@@ -18,6 +18,7 @@ const TIMEOUT_MS = 8000;
 export const DEVICE = 'sugarclock-bridge';
 const TEMP_TARGET_MGDL = 150; // the 780G temp target is fixed at 150 mg/dL
 const TREATMENT_OVERLAP_MS = 30 * MIN; // markers can show up late; re-send this window
+const SAME_TREATMENT_MS = 90 * 1000; // pump treatments of one type are minutes apart; closer = same one
 const FIRST_RUN_WINDOW_MS = 15 * MIN; // no bridge treatments yet: don't backfill Nightscout's existing history
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -231,7 +232,7 @@ export async function uploadToNightscout(env, { snapshot, patientData }, now, fe
   const [lastEntry, lastStatus, bridgeTreatments, lastTT] = await Promise.all([
     get('/api/v1/entries/sgv.json', { count: 1 }),
     get('/api/v1/devicestatus.json', { count: 1, 'find[device]': DEVICE }),
-    get('/api/v1/treatments.json', { count: 20, 'find[enteredBy]': DEVICE }),
+    get('/api/v1/treatments.json', { count: 50, 'find[enteredBy]': DEVICE }),
     get('/api/v1/treatments.json', { count: 1, 'find[enteredBy]': DEVICE, 'find[eventType]': 'Temporary Target' }),
   ]);
 
@@ -253,9 +254,11 @@ export async function uploadToNightscout(env, { snapshot, patientData }, now, fe
   // Never go back before the bridge's first upload: older treatments came from another uploader.
   const floor = await uploadFloor(env.CARELINK, now);
   const since = Math.max(cursor ? cursor - TREATMENT_OVERLAP_MS : now - FIRST_RUN_WINDOW_MS, floor);
-  const ownKeys = new Set(own.map((t) => `${t.eventType}|${Date.parse(t.created_at)}`));
-  const treatments = treatmentsFromMarkers(patientData || {}, since)
-    .filter((t) => !ownKeys.has(`${t.eventType}|${Date.parse(t.created_at)}`));
+  // CareLink marker times wobble by a second or so between polls, so an exact
+  // created_at match (and Nightscout's own upsert) let the same bolus in 2-4 times.
+  const known = (t) => own.some((o) => o.eventType === t.eventType
+    && Math.abs((Date.parse(o.created_at) || 0) - Date.parse(t.created_at)) <= SAME_TREATMENT_MS);
+  const treatments = treatmentsFromMarkers(patientData || {}, since).filter((t) => !known(t));
   const tt = tempTargetTreatment(snapshot, Array.isArray(lastTT) ? lastTT[0] : null, now);
   if (tt) { treatments.push(tt); summary.temp_target = tt.duration > 0 ? 'start' : 'cancel'; }
   if (treatments.length) { await post('/api/v1/treatments', treatments); summary.treatments = treatments.length; }
