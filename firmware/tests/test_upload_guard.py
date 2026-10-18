@@ -148,6 +148,15 @@ class IdentifyTests(unittest.TestCase):
         self.assertEqual(values[("tc001cfg", "brightness")], 40)
         self.assertEqual(guard.identify(PUMPKIN_NVS, self.MAC), ("pumpkin", 'Pumpkin clock "Emilie"'))
 
+    def test_pumpkin_1_clock(self):
+        data = nvs(nvs_page([
+            (0, 0x01, "pumpkin", 4),
+            (4, 0x21, "device", '{"name":"Klas 1B","zone":"Europe/Brussels","posix":"CET-1CEST,M3.5.0,M10.5.0/3","password":""}'),
+        ]))
+        self.assertEqual(guard.identify(data, self.MAC), ("pumpkin", 'Pumpkin clock "Klas 1B"'))
+        unnamed = nvs(nvs_page([(0, 0x01, "pumpkin", 4), (4, 0x21, "display", "{}")]))
+        self.assertEqual(guard.identify(unnamed, self.MAC), ("pumpkin", 'Pumpkin clock "pumpkin-e5f6"'))
+
     def test_pumpkin_clock_default_name(self):
         data = nvs(nvs_page([(0, 0x01, "tc001cfg", 3), (3, 0x21, "clk_name", "")]))
         self.assertEqual(guard.identify(data, self.MAC), ("pumpkin", 'Pumpkin clock "pumpkin-e5f6"'))

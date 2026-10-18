@@ -34,5 +34,5 @@ def check_ota_boot_validation(framework_source, firmware_map):
         raise ValueError("firmware map must contain exactly one live C verifyRollbackLater definition")
     address, owner, symbol_address = definitions[0]
     if (int(address, 16) == 0 or int(address, 16) != int(symbol_address, 16)
-            or not owner.endswith("/src/ota_boot_validation.cpp.o")):
-        raise ValueError("live verifyRollbackLater is not owned by ota_boot_validation.cpp.o")
+            or not owner.endswith("/src/hal/ota.cpp.o")):
+        raise ValueError("live verifyRollbackLater is not owned by src/hal/ota.cpp.o")

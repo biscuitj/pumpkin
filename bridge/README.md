@@ -30,7 +30,9 @@ Installing it: **[../docs/INSTALL.md](../docs/INSTALL.md)**. Data structures:
 ```
 
 The first fields follow SugarClock's custom-URL format, so stock SugarClock
-firmware can show the glucose too. The Pumpkin firmware uses all of them.
+firmware can show the glucose too. The Pumpkin firmware reads `glucose`, `trend`,
+`timestamp`, `tir`, `iob`, `temp_target`, `warnings`, `bridge_alert`, `message`,
+`source` and `next_poll_sec`; see [`../docs/DATA-SCHEMA.md`](../docs/DATA-SCHEMA.md).
 
 ## Fields
 
@@ -132,7 +134,7 @@ for about a week (Worker off), CareLink drops the session: `/clock` reports
 - `GET /clock`: the JSON above (Bearer `CLOCK_TOKEN`)
 - `GET /debug`: everything behind it, including the CareLink snapshot summary, backoff status and poll decision
 - `POST /carelink/poll`: force a CareLink fetch, returns the debug output
-- `POST /reminders/clear?id=set` (`sensor`, `battery`, `reservoir`, `bg`, `all`): mark a remembered pump reminder as done by hand. The clock's "Clear pump alerts" button calls it with `id=all`
+- `POST /reminders/clear?id=set` (`sensor`, `battery`, `reservoir`, `bg`, `all`): mark a remembered pump reminder as done by hand. The clock's **Clear remembered alerts** button (dashboard, Display tab) calls it with `id=all`
 - `GET /health`: `{"ok":true}`, no auth
 
 ## Development

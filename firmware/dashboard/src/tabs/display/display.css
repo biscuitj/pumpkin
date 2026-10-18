@@ -1,0 +1,339 @@
+/* Display tab, plus the switch and number controls it introduces. */
+
+/* ---------------------------------------------------------------- switch */
+
+.switch-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.switch-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.switch-row__label {
+  cursor: pointer;
+  padding-top: 1px;
+}
+
+.switch {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 40px;
+  height: 24px;
+  margin: 0;
+  border-radius: 12px;
+  background: var(--line-strong);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.switch::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  transition: transform 0.15s;
+}
+.switch:checked {
+  background: var(--primary);
+}
+.switch:checked::before {
+  transform: translateX(16px);
+}
+.switch:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .switch,
+  .switch::before {
+    transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------- numbers, sliders */
+
+.number {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.number .number__input {
+  width: 7.5em;
+}
+.number__unit {
+  color: var(--muted);
+}
+
+.slider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.slider input {
+  flex: 1;
+  accent-color: var(--primary);
+}
+.slider__value {
+  min-width: 3.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.btn--small {
+  padding: 6px 12px;
+  font-size: 0.875rem;
+}
+
+/* ---------------------------------------------------------------- mirror */
+
+.display-top {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mirror {
+  margin: 0;
+}
+/* The clock's face stays dark in both themes: it's a picture of the device. */
+.mirror__face {
+  padding: 14px;
+  background: #07090a;
+  border-radius: var(--r-panel);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06);
+}
+.mirror__canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 1;
+}
+.mirror__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+}
+.mirror__screen {
+  font-weight: 600;
+  text-align: center;
+}
+.mirror__error {
+  color: var(--fail);
+  font-weight: 500;
+}
+.mirror__nav {
+  white-space: nowrap;
+}
+
+.autosave {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.autosave--saved {
+  color: var(--ok);
+}
+
+/* ---------------------------------------------------------------- screens */
+
+.screens {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+}
+.screen {
+  padding: 14px 16px;
+}
+.screen + .screen {
+  border-top: 1px solid var(--line);
+}
+.screen__head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.screen__text {
+  min-width: 0;
+}
+.screen__title {
+  display: block;
+  font-weight: 600;
+  cursor: pointer;
+}
+.screen:not(.is-on) .screen__title {
+  color: var(--muted);
+}
+.screen__desc {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.screen__fixed {
+  flex: none;
+  width: 40px;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  color: var(--muted);
+  text-align: center;
+  padding-top: 2px;
+}
+/* Options sit under the title, aligned with it. */
+.screen__options {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 14px 0 2px 52px;
+}
+@media (max-width: 420px) {
+  .screen__options {
+    margin-left: 0;
+  }
+}
+
+.rotation {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* A short line under a screen that's set up on another tab. */
+.screen__more {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+.screen__more .pet__sprite {
+  flex: none;
+  width: 64px;
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------- glucose */
+
+.thresholds {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+  margin-top: 6px;
+}
+.thresholds .number .number__input {
+  width: 100%;
+  max-width: 6.5em;
+}
+
+.rangebar {
+  padding: 10px 12px 4px;
+  background: #07090a;
+  border-radius: 10px;
+}
+.rangebar__strip {
+  position: relative;
+  height: 10px;
+}
+.rangebar__band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--c);
+  box-shadow: 0 0 8px var(--c);
+}
+.rangebar__band:first-child {
+  border-radius: 5px 0 0 5px;
+}
+.rangebar__band:last-child {
+  border-radius: 0 5px 5px 0;
+}
+.rangebar__ticks {
+  position: relative;
+  height: 36px;
+}
+.rangebar__tick {
+  position: absolute;
+  top: 3px;
+  transform: translateX(-50%);
+  font-size: 0.75rem;
+  color: #c9d2cc;
+  font-variant-numeric: tabular-nums;
+}
+
+.presets {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.preset {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.preset input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.preset.is-on {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 10%, var(--surface));
+}
+.preset:has(input:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.preset__leds {
+  flex: none;
+  display: flex;
+  gap: 5px;
+  padding: 7px 8px;
+  background: #07090a;
+  border-radius: 7px;
+}
+.preset__led {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--c);
+  box-shadow: 0 0 5px var(--c);
+}
+.preset__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.preset__name {
+  font-weight: 600;
+}
+.preset__note {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+/* Urgent thresholds on a second line, so close values never overlap. */
+.rangebar__tick--urgent {
+  top: 18px;
+  color: #8f9a93;
+}

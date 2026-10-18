@@ -175,34 +175,36 @@ the English text from `alertShort()` in `carelink-data.js` unless `LANG = "nl"`.
 
 ```jsonc
 {
-  // ── read by the (patched) firmware today ──
+  // ── read by the Pumpkin firmware (1.0) ──
   "glucose": 142,                 // mg/dL
-  "trend": "SingleUp",            // DoubleUp | SingleUp | Flat | SingleDown | DoubleDown | NONE …
-  "timestamp": 1791554220,        // unix s of the reading
-  "message": "",
-  "force_mode": -1,
-  "tir": 78, "tir_below": 4, "tir_above": 18,   // % over 24h, 70–180; -1 = not enough data
+  "trend": "SingleUp",            // DoubleUp | SingleUp | FortyFiveUp | Flat | … | NONE
+  "timestamp": 1791554220,        // unix s of the reading: the clock's "how old"
+  "tir": 78,                      // % over 24h, 70–180; -1 = not enough data
   "iob": 1.35,                    // U, pump value; null = unknown or old
-  "next_poll_sec": 200,           // 10–300
+  "temp_target": true,            // sport bars on the glucose screen
+  "warnings": ["warning", "battery"], // pump alerts screen, highest priority first (see below)
+  "bridge_alert": "",             // "" | "CARELINK LOGIN NEEDED" | "CARELINK ERROR" (LANG=nl: NODIG / STORING); scrolls on the clock
+  "message": "",                  // free text; scrolls on the clock when not empty
+  "source": "carelink",           // carelink | nightscout; the dashboard says when the reading came via Nightscout
+  "next_poll_sec": 200,           // 10–300: when the clock asks again
 
-  // ── Pumpkin firmware (stock SugarClock ignores these) ──
-  "source": "carelink",           // carelink | nightscout
+  // ── sent, not used by the clock (Nightscout, /debug, other clients) ──
+  "force_mode": -1,               // stock SugarClock only
+  "tir_below": 4, "tir_above": 18,
   "trend_arrows": 1,              // -3 … 3
   "alert": "CHANGE SET",          // headline in LANG, "" = none
   "alerts": [ { "short": "CHANGE SET", "text": "Set Change Reminder", "category": "set_change",
                 "since": 1791553200, "silenced": false } ],
-  "temp_target": true,
   "temp_target_min": 95,
   "sensor_hours_left": 31,
   "reservoir_units": 42.5,
   "pump_battery": 75,             // %
-  "phone_battery": 88,            // %
-  "warnings": ["warning", "battery"], // clock alert screen, highest priority first (see below)
-  "bridge_alert": ""              // "" | "CARELINK LOGIN NEEDED" | "CARELINK ERROR" (LANG=nl: NODIG / STORING)
+  "phone_battery": 88             // %
 }
 ```
 
-Errors (the clock shows stale or no data):
+Errors (the clock keeps its last reading, which goes grey once it's old; the
+dashboard's Connections tab names the cause):
 
 | HTTP | body |
 |---|---|

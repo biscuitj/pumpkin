@@ -1,0 +1,107 @@
+/* Schedule tab: a week of days, each a row of controls over a 24-hour strip. */
+
+.week {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+}
+.day {
+  padding: 12px 14px 10px;
+}
+.day + .day {
+  border-top: 1px solid var(--line);
+}
+.day--today {
+  background: color-mix(in srgb, var(--brand) 6%, var(--surface));
+}
+.day__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.day__name {
+  min-width: 7.5em;
+  font-weight: 600;
+  cursor: pointer;
+}
+.day__short {
+  display: none;
+}
+.day__today {
+  margin-left: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--link);
+}
+.day--off .day__name {
+  color: var(--muted);
+}
+.day__times {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.input--time {
+  width: auto;
+  padding: 6px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.day__asleep {
+  font-size: 0.9375rem;
+}
+
+.copyday {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.input--inline {
+  width: auto;
+  padding: 6px 10px;
+}
+
+/* The strip: night is the panel's dark, awake is lit like the matrix. */
+.daybar {
+  position: relative;
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 3px;
+  background: #07090a;
+  overflow: hidden;
+}
+.daybar__awake {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--brand);
+}
+.daybar__now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 4px #fff;
+}
+
+.week__note {
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 480px) {
+  .day__long {
+    display: none;
+  }
+  .day__short {
+    display: inline;
+  }
+  .day__name {
+    min-width: 4.2em;
+  }
+}
