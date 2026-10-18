@@ -1,10 +1,10 @@
 # Changelog
 
-All notable changes to Pumpkin: the bridge (Cloudflare Worker) and the clock firmware (based on SugarClock 0.2.15).
+All notable changes to Pumpkin: the bridge (Cloudflare Worker) and the clock
+firmware (started from SugarClock 0.2.15, rewritten in 1.0.0).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
-the project uses [Semantic Versioning](https://semver.org/). It stays on major
-version 0 for now.
+the project uses [Semantic Versioning](https://semver.org/).
 
 How versions work:
 - **One version for the whole project.** The bridge and the firmware share the
@@ -16,13 +16,64 @@ How versions work:
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-18
+
+The clock firmware is rewritten around a new dashboard and reads only the
+Pumpkin bridge. Clocks on 0.x keep their settings when they update (from the old
+web page or over USB). The bridge gets an earlier sensor warning; its `/clock`
+answer is unchanged.
+
 ### Added
+- Firmware: **new dashboard** (`firmware/dashboard/`, Preact), served by the
+  clock and built into the firmware: Display (with a live mirror of the
+  matrix and previews of alerts), Pet, Schedule, Connections, Device. A
+  separate setup page over the setup hotspot.
+- Firmware: **Schedule:** awake hours per day of the week instead of one night
+  window; at night the clock dims or goes dark.
+- Firmware: **source test:** Connections tests the bridge address and token on
+  the clock and says which part fails (address, token, CareLink).
+- Firmware: **time without NTP:** when the network blocks NTP, the clock sets
+  its time from the bridge's HTTPS answers.
+- Firmware: **Pet tab** with previews: the picker shows each pet as the clock
+  draws it (`GET /api/display/pets`, from the clock's own pet code); the
+  chosen one animates.
+- Firmware: **updates from the dashboard** (Device → Firmware): the file is
+  checked in the browser and on the clock while it streams in, and a new
+  version that doesn't start properly is rolled back by itself, as before.
+- Firmware: **host simulator** (`firmware/host/`): the real API, engine and
+  rendering on a computer, for working on the dashboard without a clock.
 - Bridge: **sensor warning before the sensor ends.** The pump only alerts when
   the sensor has expired, and a new sensor needs about 2 h to warm up. The
   `sensor` warning now also comes on when the sensor has `SENSOR_WARN_MIN`
   minutes or less left (default 180, `0` turns it off), and goes away with
   the new sensor. Not during a warm-up, and not without a live sensor value.
   On 16 Oct: 44 min left and no warning on the clock.
+
+### Changed
+- Firmware: **rewritten** as a core of plain C++ (`src/core`, unit-tested on
+  the host) and a thin ESP32 layer (`src/hal`). One HTTP API, described in
+  `dashboard/src/contract.ts`. Settings are stored per group as JSON in NVS
+  (namespace `pumpkin`); a clock coming from 0.x carries its settings over once
+  (Wi-Fi, bridge, name, password, most display settings, night hours) and then
+  clears the old ones. The time zone isn't carried over: check it on Device.
+- Firmware: **HTTPS to the bridge checks the certificate** against pinned root
+  certificates (Let's Encrypt, Google Trust Services, SSL.com and a few more)
+  instead of trusting any server.
+- Firmware: buttons: left and right step through the screens, middle makes the
+  pet wave, holding middle shows the clock's address. Brightness and screen
+  modes are set from the dashboard.
+- Firmware: three colour sets (classic, colour-blind friendly, calm) instead of
+  free colours. LED colours keep the old firmware's gamma correction.
+
+### Removed
+- Firmware: Dexcom Share, LibreLinkUp and direct Nightscout; the clock reads the
+  Pumpkin bridge only (or demo data). The bridge still falls back to Nightscout.
+- Firmware: the trend screen, timers, stopwatch, countdown, buzzer glucose
+  alerts, copying settings between clocks, Improv serial setup and the
+  `force_mode` field.
+- Firmware: an urgent high or low no longer replaces the pet screen with the
+  number. Pump alerts can still take the pet's place (Display → Pump alerts).
+- Firmware: the old web pages (`data/www`).
 
 ## [0.12.0] - 2026-10-14
 
@@ -391,6 +442,7 @@ Multiple clocks on one network. Firmware only; the Worker is unchanged.
 - Firmware: "Show Trend Screen" toggle (`trend_en`).
 
 [Unreleased]: #unreleased
+[1.0.0]: #100---2026-10-18
 [0.12.0]: #0120---2026-10-14
 [0.11.0]: #0110---2026-10-13
 [0.10.0]: #0100---2026-10-12

@@ -1,0 +1,18 @@
+/* Setup page: the dashboard's base styles plus a heading of its own. */
+
+.setup__main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.setup__title {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+/* The join form is the page's only content: no dashed divider above it. */
+.setup .join {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}

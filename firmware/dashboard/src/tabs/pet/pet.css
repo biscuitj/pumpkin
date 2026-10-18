@@ -1,0 +1,67 @@
+/* Pet tab: the picker. The sprite styles are also used on the Display tab. */
+.pets {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pets__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 420px) {
+  .pets__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.pet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-control);
+  cursor: pointer;
+}
+.pet input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.pet.is-on {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, var(--surface));
+}
+.pet:has(input:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+/* The pet on a dark "matrix", in its LED colours whatever the theme. */
+.pet__sprite {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 10;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: #0b0f0d;
+}
+.pet__sprite svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.pet__name {
+  font-weight: 600;
+}
+.pet__kind {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+

@@ -1,73 +1,146 @@
-# Pumpkin: display spec (bridge features)
+# Pumpkin: what the clock shows
 
-All of this is in the firmware since 0.6.0. Items marked "next round" were
-built in 0.6.0; see `CHANGELOG.md` for later changes.
+The display as firmware 1.0 draws it on the 32×8 matrix. The code is
+`firmware/src/core/engine.cpp` (screens, rotation, overlays, brightness),
+`pets.cpp` and `art.cpp`; the dashboard's Display tab mirrors the matrix live.
+Settings named here are on the dashboard's **Display**, **Pet** and
+**Schedule** tabs.
 
 ## Screens
 
-### Glucose, with sport mode (done)
-- **Sport mode:** while the temp target is active (`temp_target: true`), the glucose screen gets a 2 px wide, full-height bar on each side, columns 0–1 and 30–31.
-- **Colour and brightness:** the bars are in the value's colour, at the normal brightness.
-- **Old data:** no bars when the data is stale or in the stale warning (10–20 min). The "!" uses the right edge then.
-- **Urgent low:** keeps priority as before; the bars stay on.
+### Glucose (always on)
+- The value in its range colour, with the trend arrow right after it, centred
+  together. mg/dL or mmol/L (one decimal).
+- **Range colours** come from one of three colour sets:
 
-### IOB (done)
-- `0.35U` in cyan, centred: 2 decimals below 10 U, 1 decimal from 10 U.
-- `--U` in grey when IOB is `null`, or when the data is stale.
-- Its own screen after TIR, which can be turned off like Trend, TIR and Time: "Show Active Insulin Screen" (on by default), stored as `iob_en`.
+  | set | urgent low | low | in range | high | urgent high | old |
+  |---|---|---|---|---|---|---|
+  | classic | red EA4335 | amber FBBC04 | green 34A853 | amber FBBC04 | red EA4335 | grey 808080 |
+  | colour-blind friendly | FF3B1F | orange FF9F00 | blue 2D9CFF | purple B57BFF | magenta E040FB | grey 808080 |
+  | calm | FF3020 | FFB000 | white E8E8E8 | FFB000 | FF3020 | grey 606060 |
 
-### Alerts (done; next round in **bold**)
-A separate screen that only appears in the rotation while there is something to show. The Worker sends `warnings`, already deduplicated and in this order:
+  Defaults: urgent low 55, low 70, high 180, urgent high 250 mg/dL.
+- **Getting old:** from half the stale time (default 10 of 20 min) a yellow `!`
+  sits at the right edge and the screen dims to a third (never below 20).
+- **Old:** after the stale time (10–60 min, default 20), or 5 failed fetches in
+  a row, the value turns grey.
+- **No reading yet:** `---` in grey.
+- **Sport mode:** while a temp target is on (`temp_target`), 2 px bars in the
+  value's colour on columns 0–1 and 30–31. Not when the reading is getting old
+  (the `!` needs the edge).
+- **Delta flash** (on by default): for 3 s after a new reading, the change since
+  the previous one (`+12`, `-0.4`) instead of the value. Not on old data, never
+  during the low lock.
 
-| id | when (Worker) | shown as | duration |
-|---|---|---|---|
-| **`suspended`** | **pump stopped by hand: banner `DELIVERY_SUSPEND`, no auto-suspend** | **two orange (0xFF6D00) 2×6 bars, 2 px gap, rows 1–6** | **5 s** |
-| `warning` | pump alerts delivery stopped, set connect, sensor signal, calibration, **and SmartGuard auto-suspend (809/810, `SUSPENDED_ON_LOW` / `SUSPENDED_BEFORE_LOW`)** | amber triangle (0xFBBC04) with an unlit 2 px exclamation mark | 5 s |
-| `battery` | pump battery alert (remembered until the battery % goes up) | battery · **next: light blue 0x64B5F6** (now red) | 5 s |
-| `reservoir` | reservoir alert (remembered until the reservoir goes up ≥ 5 U) | reservoir · **next: green 0x34A853** (now red) | 5 s |
-| `bg` | BG required (remembered until a finger-prick BG, or until SmartGuard is back in Auto Basal) | red blood drop | 5 s |
-| `sensor` | sensor alert (remembered until sensor time left goes up ≥ 12 h); also 3 h before the sensor ends (`SENSOR_WARN_MIN`), so a new one can warm up in time | done: `SENSOR VERVANGEN` scrolls, red · **next: static `SENSOR` in narrow 4×7 letters, yellow 0xFFE000** | scroll once · **5 s** |
-| `set` | set change reminder (remembered until a tubing fill: reservoir −≥ 5 U unexplained, while suspended or with no IOB rise) | done: `SET VERVANGEN` scrolls, red · **next: static `SET` in the normal font, yellow 0xFFE000** | scroll once · **5 s** |
+### Bridge messages
+- `bridge_alert` (`CARELINK LOGIN NEEDED`, `CARELINK ERROR`) scrolls in amber,
+  right after the glucose, while the bridge sends it.
+- `message` scrolls in white in the same place.
+- Each scrolls through at least once before the rotation moves on.
 
-How the screen behaves:
-- **Several alerts:** they play one after another, then the rotation moves on, whatever the cycle time is.
-- **Coming back:** they play again when the rotation comes round.
-- **Without auto-cycle:** they loop until you press next.
-- **Remembered alerts:** they stay after being dismissed on the pump, until the action shows in the pump data, 72 h pass, or they're cleared by hand.
-- **Not remembered:** `suspended` and `warning` show only while they're active on the pump.
-- **Next round:** the screen keeps its place by alert type rather than by position, so no alert is skipped when another one clears.
+### Time in range
+Right-aligned `78%`: in-range colour from 70 %, high colour from 50 %, urgent
+low colour below that. `--%` in grey when unknown (`-1`) or the data is old.
 
-### Preview and clearing (web UI)
-- **Done:** preview buttons Battery, Reservoir, BG required, Warning, Sensor, Set and All (`POST /api/test/alert`). They never override an urgent low.
-- **Next round:**
-  - a **Pause** preview button;
-  - **Clear pump alerts**: the clock calls the Worker (`/reminders/clear?id=all`) from its main loop, then fetches straight away. It clears remembered reminders; alerts the pump still shows as active stay until they're dismissed on the pump.
+### Active insulin
+`0.35U` in cyan, centred: two decimals below 10 U, one from 10 U. `--U` in grey
+when unknown or old.
 
-### Night mode: Full Mute (next round)
-Meant for a clock at school, outside school hours.
-- **Setting:** a new option, "Full Mute", next to the existing night mode settings (start hour, end hour, night brightness). It only does anything while night mode is on.
-- **Behaviour:** during the night hours, the matrix is fully black instead of dimmed to `night_brightness`, and the buzzer stays silent.
-- **Nothing wakes it:** not urgent low or high, not pump alerts, not a button press.
-- **How:** the brightness goes to 0 inside `effective_brightness()`, so every screen goes dark the same way. The stale screens' minimum of 20 must not apply while muted. The existing API clamps `night_brightness` to 1–255, which is why a separate option is needed.
-- **Fetching carries on,** so the right value is there the moment the night hours end.
-- **Without a valid time** (no NTP yet), night mode is off, as today, so the clock never goes dark by mistake.
-- **Storage:** NVS key `night_mute`, JSON key `night_full_mute`, off by default. It's included in `/api/config` GET/POST and in both index.html copies.
+### Time
+`14:05` in white with a blinking colon, 24-hour or 12-hour. With a date format
+set, time and date (`18/10` or `10/18`) take turns every 5 s. `--:--` until the
+clock has the time (DS1307, NTP, or the bridge's `Date` header).
 
-## Rotation order
+### Pet
+One of eight pets: Patch the pumpkin (default), Toffee the cat, Kiko the frog,
+Domino the penguin, Hoot the owl, Leo the lion, Stella the unicorn, Kobi the
+crab.
+- **Pose from the reading:** happy in range, droopy when low, agitated when
+  high. Asleep (eyes closed, a drifting `z`) outside the awake hours, when
+  the schedule is on.
+- **Next to the pet:** `LOW` / `OK` / `HIGH` (or the time in range instead), a
+  three-step range icon, or nothing with the pet centred.
+- **Waves** now and then by itself, and when you press the middle button on
+  this screen.
+- **Seasonal surprises** (pet only, in range): a Halloween touch on 31 October,
+  fireworks on 31 December and 1 January.
+- **No reading, or old data:** `---` instead of a pose. An urgent value never
+  takes the pet's place: the pet shows the range it's in.
+
+### Pump alerts
+Only in the rotation while the bridge sends `warnings` and the data isn't old.
+Each alert shows for 5 s, highest priority first:
+
+| id | shown as |
+|---|---|
+| `suspended` | two orange (FF6D00) pause bars |
+| `warning` | amber (FBBC04) triangle |
+| `battery` | light blue (64B5F6) battery |
+| `reservoir` | green (34A853) reservoir |
+| `bg` | red (EA4335) blood drop |
+| `sensor` | `SENSOR` in narrow letters, yellow (FFE000) |
+| `set` | `SET`, yellow (FFE000) |
+
+- Every alert plays once, then the rotation moves on. Without auto-cycle they
+  keep looping.
+- Played alerts are tracked by type, so one that clears never makes another one
+  skip its turn.
+- **Clear remembered alerts** (Display tab) asks the bridge to forget
+  remembered reminders (`POST /reminders/clear?id=all`); alerts the pump still
+  shows stay.
+
+## Rotation
 
 ```
-glucose → trend → TIR → IOB → time → pet → ALERTS → timer → …
+glucose → bridge alert → message → time in range → active insulin → time → pet → pump alerts
 ```
 
-- **Position:** the alerts screen sits after the pet, or where the pet would be if the pet screen is off.
-- **"Pump Alerts Replace the Pet Screen"** (off by default): with alerts active, they take the pet's slot.
-- **Turning it off:** "Show Pump Alerts Screen" (on by default) switches the alerts screen off entirely.
+- Every screen but glucose can be switched off. Bridge alerts, messages and pump
+  alerts only appear while there's something to show.
+- **Pump alerts replace the pet** (off by default): with alerts active, they
+  take the pet's place instead of following it.
+- **Auto-cycle** (on by default): each screen shows for 3–300 s (default 10).
+  Off: only the buttons change screens.
+- Screens fade out and in over 600 ms.
 
-## Settings (web UI + NVS)
+## Above the rotation
 
-| setting | key | default |
+Highest priority first:
+
+1. **Update:** progress in %, then `REBOOT`, in teal.
+2. **Boot:** the pixel pumpkin, then `Pumpkin` scrolls by (about 4 s).
+3. **Low lock** (on by default): a fresh reading below *low* pins the glucose
+   screen. No fades, buttons, previews or address while it lasts.
+4. **Previews** from the dashboard: a pet pose, glucose value or the alerts
+   (each alert once). Never over an urgent value.
+5. **Address:** `Visit keuken.local or 192.168.0.12` (hold the middle button,
+   or after joining Wi-Fi from the setup page).
+6. **Status messages:**
+   - setup hotspot: `Wi-Fi setup: join Pumpkin-Setup-E5F6, then open http://192.168.4.1`,
+     and while joining: `Joining …`, `Signing in to …`, or why it failed (teal);
+   - `NO` / `WIFI` (red, alternating) when the saved network is gone;
+   - the network blocks DNS or the bridge (amber, names the host);
+   - `Visit … to set up` when no bridge is set (teal);
+   - `NO` / `DATA` (red) without data, or after 10 failed fetches.
+
+Demo data skips the status messages: it needs nothing from the network.
+
+## Brightness and night
+
+- **Auto** (default): from the light sensor, 5 in a dark room to 200 in
+  daylight. **Manual:** a fixed level.
+- **Schedule:** awake hours per weekday (in minutes). Outside them the clock
+  either **dims** to the night brightness or goes **dark**. Dark means fully
+  black: nothing wakes it, not a low, not an alert, not a button. Fetching
+  carries on.
+- Without a valid time the clock counts as awake, so it never goes dark by
+  mistake.
+- Old readings never go below brightness 20, so they stay readable.
+
+## Buttons
+
+| Button | Press | Hold (1 s) |
 |---|---|---|
-| Show Active Insulin Screen | `iob_en` | on |
-| Show Pump Alerts Screen | `alrt_en` | on |
-| Pump Alerts Replace the Pet Screen | `alrt_pet` | off |
-| **Full Mute** (night mode, next round) | `night_mute` | off |
+| Left | previous screen | |
+| Middle | the pet waves (on the pet screen) | show the address |
+| Right | next screen | |

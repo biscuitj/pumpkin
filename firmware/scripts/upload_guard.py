@@ -20,6 +20,7 @@ script (a `post:` extra script, so it runs before anything is built):
 PUMPKIN_DEVICE=a4:cf:12:9b:e5:f6[,…]  MACs that need no confirmation.
 PUMPKIN_SKIP_USB_GUARD=1             skip all of this (you're on your own).
 """
+import json
 import os
 import re
 import shlex
@@ -38,7 +39,9 @@ except Exception:
 CH340_IDS = {(0x1A86, 0x7523), (0x1A86, 0x55D4)}
 NVS_OFFSET, NVS_SIZE = 0x9000, 0x5000          # partitions_custom.csv
 MIN_FLASH_MB = 4
-CLOCK_NAMESPACE = "tc001cfg"                     # config_manager.cpp
+PUMPKIN_NAMESPACE = "pumpkin"                    # Pumpkin 1.0+: src/hal/storage.cpp
+PUMPKIN_DEVICE_KEY = "device"                    # JSON with the clock's "name"
+CLOCK_NAMESPACE = "tc001cfg"                     # before 1.0, and SugarClock
 CLOCK_NAME_KEY = "clk_name"                      # Pumpkin only (not SugarClock)
 PROBE_TIMEOUT_S = 45
 
@@ -157,6 +160,15 @@ def identify(nvs_data, mac):
         namespaces, values = parse_nvs(nvs_data or b"")
     except Exception:
         namespaces, values = set(), {}
+    if PUMPKIN_NAMESPACE in namespaces:
+        name = ""
+        try:
+            name = json.loads(values.get((PUMPKIN_NAMESPACE, PUMPKIN_DEVICE_KEY), "{}")).get("name", "")
+        except (ValueError, AttributeError):
+            pass
+        if not name and mac:
+            name = "pumpkin-" + mac.replace(":", "")[-4:]   # clock_default_name()
+        return "pumpkin", f'Pumpkin clock "{name}"' if name else "Pumpkin clock"
     if CLOCK_NAMESPACE not in namespaces:
         return "unknown", "no Pumpkin or SugarClock settings on it"
     if (CLOCK_NAMESPACE, CLOCK_NAME_KEY) in values:

@@ -44,11 +44,8 @@ if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version):
     fail("VERSION is not strict major.minor.patch")
 if "PUMPKIN_VERSION" not in read("src/main.cpp") or '#define FIRMWARE_VERSION' in read("src/main.cpp"):
     fail("firmware does not consume the authoritative injected version")
-if re.search(r">v\d+\.\d+\.\d+<", read("data/www/device.html")):
-    fail("hardcoded UI version remains in data/www/device.html")
 
 firmware = os.path.join(ROOT, ".pio", "build", "esp32dev", "firmware.bin")
-littlefs = os.path.join(ROOT, ".pio", "build", "esp32dev", "littlefs.bin")
 if os.path.exists(firmware) and os.path.getsize(firmware) > 0x1C0000:
     fail("firmware.bin exceeds OTA slot")
 if os.path.exists(firmware):
@@ -61,8 +58,6 @@ if os.path.exists(firmware):
     print("OTA boot-validation check passed: Arduino hook and live application definition")
 else:
     print("SKIPPED OTA boot-validation check: firmware.bin is missing; run pio run first")
-if os.path.exists(littlefs) and os.path.getsize(littlefs) != 0x70000:
-    fail("littlefs.bin does not match filesystem partition")
 
 sdkconfig = os.path.expanduser("~/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/sdkconfig")
 if os.path.exists(sdkconfig) and "CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y" not in open(sdkconfig, encoding="utf-8").read():

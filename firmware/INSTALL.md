@@ -1,4 +1,4 @@
-# Pumpkin firmware — Installation Guide
+# Pumpkin firmware: installing, updating, recovery
 
 ## Prerequisites
 
@@ -9,6 +9,7 @@
 
 ### Software
 - [PlatformIO CLI](https://platformio.org/install/cli) or PlatformIO IDE (VS Code extension)
+- [Node.js](https://nodejs.org) 20 or newer, to build the dashboard
 - CH340 USB-to-serial driver (see below)
 
 ### CH340 Driver Installation
@@ -46,28 +47,19 @@ Keep `tc001_factory_backup.bin` somewhere safe.
 
 ## Step 2: Build the Firmware
 
-Clone or download this project, then build:
-
 ```bash
 cd firmware
-
-# Install PlatformIO if needed
-pip install -r requirements-build.txt
-
-# Build firmware
+pip install -r requirements-build.txt   # PlatformIO, pinned
 pio run
 ```
 
-Expected output:
-```
-RAM:   [==        ]  15.9% (used 52084 bytes from 327680 bytes)
-Flash: [======    ]  XX.X% (used XXXXXXX bytes from 2097152 bytes)
-========================= [SUCCESS] Took X seconds =========================
-```
+The first build downloads the ESP32 toolchain, installs the dashboard's npm
+packages and takes a few minutes. The build ends with the image size (about
+75% of an update slot) and its marker:
 
-Optional, only if you use the LittleFS image (see Step 4):
-```bash
-pio run --target buildfs
+```
+[post-build] 1,385,520 of 1,835,008 bytes (75.5% of an OTA slot)
+[post-build] Image marker PUMPKIN-IMAGE|ulanzi-tc001-esp32-4mb|
 ```
 
 ---
@@ -101,7 +93,7 @@ If the upload fails with a connection error:
 
 ### Option A: PlatformIO (Recommended)
 
-Every target that writes to a device (`upload`, `uploadfs`, `erase`) goes
+Every target that writes to a device (`upload`, `erase`) goes
 through the USB guard first (`scripts/upload_guard.py`). It picks the one CH340
 device that is connected, reads its chip, MAC, flash size and settings
 (read only), and only then lets PlatformIO write, to that port and no other:
@@ -115,274 +107,164 @@ is confirmed up front: `PUMPKIN_DEVICE=a4:cf:12:9b:e5:f6 pio run -t upload`
 (comma-separated for more than one). `PUMPKIN_SKIP_USB_GUARD=1` turns it off.
 
 ```bash
-# Upload firmware (the web UI is built into it)
-pio run --target upload
-
-# Optional: the LittleFS image (extra files such as certificates; not needed normally)
-pio run --target uploadfs
+pio run --target upload    # the dashboard is built into the firmware
 ```
 
 To choose the port yourself (the guard still checks what's on it):
 ```bash
 pio run --target upload --upload-port /dev/cu.usbserial-1410
-pio run --target uploadfs --upload-port /dev/cu.usbserial-1410
 ```
 
-### Option B: esptool.py (Manual)
+### Coming from Pumpkin 0.x or SugarClock (keep settings)
 
-esptool writes to whatever ESP32 is on the port you give it; the USB guard
-doesn't run here. Check the port first (`esptool.py -p PORT flash_id` shows the
-MAC) when other boards are connected.
+Upload 1.0 the usual way: through the old web page (Device → Update firmware)
+or over USB, **without erasing**. On its first start 1.0 carries over:
 
-```bash
-# For a brand-new device only (this destroys all settings):
-esptool.py -p /dev/cu.usbserial-1410 erase_flash
+- Wi-Fi (also school logins and the saved certificate);
+- the bridge address and clock token, or demo data;
+- the clock's name and dashboard password;
+- screens, rotation, glucose unit and ranges, 24-hour time, date, pet, brightness;
+- night mode, as the same awake hours on every day.
 
-# Flash firmware
-esptool.py -p /dev/cu.usbserial-1410 -b 460800 write_flash \
-  0x1000  .pio/build/esp32dev/bootloader.bin \
-  0x8000  .pio/build/esp32dev/partitions.bin \
-  0xe000  ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
-  0x10000 .pio/build/esp32dev/firmware.bin \
-  0x390000 .pio/build/esp32dev/littlefs.bin
-```
+Then it removes the old settings, which held the passwords a second time. Not
+carried over: Dexcom, LibreLinkUp and Nightscout logins, timers, buzzer alerts,
+colours (1.0 has three colour sets) and the time zone. **Check the time zone on
+the Device tab** if you're not in Belgium: the old firmware only kept the raw
+rules, and 1.0 starts on Europe/Brussels.
 
-### Coming from SugarClock or Pumpkin 0.7 (keep settings)
-
-Clocks on SugarClock or on Pumpkin 0.7 and older can't install a Pumpkin update
-over Wi-Fi yet, so flash them once over USB with `pio run --target upload`.
-**Don't erase first**: Wi-Fi, data source, alerts and display settings stay.
-From 0.8 on, updates go through the clock's web page (see *Updating Firmware*).
+Going back to 0.12 afterwards means setting the clock up again.
 
 ---
 
 ## Step 5: Verify the Flash
 
-Open the serial monitor to confirm the device boots correctly:
-
 ```bash
 pio device monitor
 ```
 
-You should see:
 ```
-================================
-Pumpkin v0.10.0
-Reset reason: 1
-================================
-[CONFIG] No valid config found, writing defaults
-[CONFIG] Poll interval: 60s, Brightness: 40
-[BOOT] Setup complete
-[BOOT] Free heap: XXXXX bytes
+[boot] Pumpkin 1.0.0, reset: power_on
+[time] RTC found, time loaded
+[ota] 1.0.0, image PUMPKIN-IMAGE|ulanzi-tc001-esp32-4mb|
+[wifi] No network saved: setup hotspot
+[wifi] Setup hotspot Pumpkin-Setup-E5F6 on 192.168.4.1
+[boot] Ready, 190000 bytes free
 ```
 
-The LED matrix should briefly show a pixel pumpkin, scroll `Pumpkin`, then show the Wi-Fi setup instructions (no Wi-Fi configured yet).
+The matrix shows a pumpkin, then scrolls the setup network's name.
 
 ---
 
-## Step 6: Configure via Web UI
+## Step 6: Set it up
 
-### First-Time WiFi Setup
+### Wi-Fi
 
-On first boot with no WiFi configured, the clock starts an open network named
-`Pumpkin-Setup-XXXX`, where `XXXX` is unique per clock, so two new clocks are never mixed
-up. The display cycles the exact network name and `192.168.4.1`.
+A clock without Wi-Fi opens an open network named `Pumpkin-Setup-XXXX`
+(`XXXX` is unique per clock).
 
-1. Join that `Pumpkin-Setup-XXXX` network from a phone or computer.
-2. If a captive-network window appears, follow its signpost and open a normal Safari,
-   Chrome, or Edge window. The setup process is too long-lived for the captive webview.
-3. Open `http://192.168.4.1`.
-4. Open the **WiFi** tab, choose a visible 2.4 GHz network (or type a hidden SSID), and
-   select **Join this network**.
-5. The clock tests the credentials first and saves them only after the connection succeeds.
-6. Once it's on your network, the clock scrolls its address once, e.g.
-   `To connect, visit pumpkin-a1b2.local or 192.168.0.12`. Give it a name on the
-   **Clocks** tab; the address follows the name (`keuken.local`).
+1. Join it from a phone or laptop.
+2. If a sign-in window pops up, it only points you on: open Safari or Chrome
+   and go to `http://192.168.4.1`. (That window closes too soon to join a
+   school network.)
+3. Pick the network, choose **Password** or **School or work login**, and join.
+   The clock tries it first and keeps it only when it works; the page and the
+   matrix say what went wrong otherwise (wrong password, network not found,
+   no answer).
+4. Once it's on, the clock scrolls its address, e.g. `pumpkin-e5f6.local`
+   and its IP address. Open that on your normal network.
 
-If saved WiFi cannot connect, the same setup network starts automatically after about two
-minutes. The clock continues retrying the saved network whenever no phone is using the setup
-page.
+When the saved network stops working, the setup hotspot comes back after two
+minutes; the clock keeps retrying the saved network while nobody is on it.
 
-### School and WPA2-Enterprise WiFi
+### The dashboard
 
-Pumpkin supports WPA2-Enterprise with PEAP or EAP-TTLS username/password authentication.
-It does not support certificate-based EAP-TLS.
+| Tab | What's there |
+|---|---|
+| **Display** | live mirror of the matrix, screens and their order, glucose unit, ranges and colours, time and date, pump alerts (and **Clear remembered alerts** on the bridge), brightness |
+| **Pet** | which pet (previews drawn by the clock), what shows next to it, seasonal surprises, trying its poses on the clock |
+| **Schedule** | awake hours per day; at night the clock dims or goes dark |
+| **Connections** | pump data (bridge address and clock token, or demo data), Wi-Fi, the reachability checks |
+| **Device** | name (its address becomes `name.local`), time zone, password, firmware updates, restart, factory reset, diagnostics |
 
-For the easiest on-site flow, flash the clock at home without Wi-Fi details. At the school,
-power the clock, join its `Pumpkin-Setup-XXXX` network from a phone, open
-`http://192.168.4.1`, and select the school network. Enterprise networks are marked in the
-network list. PEAP is the right default for most K-12 networks; use EAP-TTLS only when school
-IT specifies it.
+For the bridge, see [`../docs/INSTALL.md`](../docs/INSTALL.md), step *Point the
+clock at the bridge*.
 
-Enter the identity exactly as IT provides it. Common formats are:
+### School and WPA2-Enterprise Wi-Fi
 
-- `user@district.org`
-- `DISTRICT\user`
-- `user`
+PEAP and EAP-TTLS with a username and password work; certificate logins
+(EAP-TLS) don't. Easiest: flash at home without Wi-Fi, then set it up at
+school from a phone on the setup hotspot. PEAP is right for most schools.
 
-A correct password with the wrong identity format will still be rejected. Anonymous identity
-is optional under **Advanced**.
+Enter the user name exactly as IT gives it (`user@school.org`,
+`SCHOOL\user` or `user`); a right password with the wrong user name format is
+still refused. The anonymous identity is optional, under **Advanced**.
 
-By default, the clock trusts the authentication server certificate, equivalent to accepting a
-certificate prompt on a phone. For stronger verification, paste the school CA certificate in
-PEM format under **Advanced** before joining. When a CA is loaded, Pumpkin validates the
-network against it.
+By default the clock trusts the login server, like tapping "Trust" on a phone.
+To check it instead, add the school's CA certificate (PEM) under **Advanced**.
 
-School IT can copy this outbound allowlist (also allow normal DNS resolution):
+What school IT needs to allow (plus normal DNS):
 
 ```text
-TCP 443: share2.dexcom.com, shareous1.dexcom.com (only with Dexcom Share as data source)
-TCP 443: the Pumpkin bridge (<name>.<account>.workers.dev)
-TCP 443: the configured Nightscout host (when used)
-UDP 123: pool.ntp.org
-UDP 123: time.nist.gov
-UDP 123: time.google.com
+TCP 443: the Pumpkin bridge (<name>.<account>.workers.dev, or its own domain)
+UDP 123: pool.ntp.org, time.google.com, time.cloudflare.com
 ```
 
-After association, the WiFi page reports DNS, data-source HTTPS, and NTP reachability
-separately. This helps distinguish bad credentials from a school firewall that admits the
-device but blocks the services it needs.
+After joining, **Connections** shows whether names resolve (DNS), the bridge
+answers (HTTPS) and time sync works (NTP) separately. Without NTP the clock
+takes the time from the bridge's answers, to a second or two.
 
-Hotel-style captive login pages are not supported: the clock has no browser and each portal
-works differently. Use a travel router or phone hotspot for those networks.
-
-### Finding the Web UI After Connection
-
-Once connected to WiFi, the serial monitor shows the device's IP address:
-```
-[WIFI] Connected! IP: 192.168.1.xxx, RSSI: -45 dBm
-[WEB] Server started at http://192.168.1.xxx/
-```
-
-Open that IP in a browser to access the web UI.
-
-### Web UI Pages
-
-| Page | URL | Purpose |
-|------|-----|---------|
-| Status | `/display.html` | Live glucose reading, trend, data age |
-| Config | `/` | WiFi, server URL, thresholds, display settings |
-| Debug | `/debug.html` | HTTP responses, heap usage, sensor data |
-| Device | `/device.html` | Firmware version, **Update firmware** (upload a `.bin`), restart/reset |
-
-The **Clocks** tab on the Config page names the clock (its address becomes `name.local`),
-lists the other Pumpkin clocks on the network, copies settings to them, and sets an optional
-password for the web page (user `pumpkin`).
-
-## USB recovery
-
-Web updates never touch the bootloader or partition table. If both application slots are
-damaged, enter flash mode (hold the middle button while connecting USB) and flash again with
-`pio run --target upload`. Don't erase first if you want to keep the settings.
-
-**Forgot the web page password?** It can only be cleared over USB, together with all other
-settings: `pio run --target erase`, then `pio run --target upload`, and set the clock up again.
-
-### Required Configuration
-
-With the Pumpkin bridge, follow [`../docs/INSTALL.md`](../docs/INSTALL.md) (step *Point the clock
-at the bridge*). For any other server, on the **Blood Sugar** tab set:
-
-1. **Server URL** — Your glucose data endpoint (HTTPS supported)
-2. **Auth Token** — Bearer token for the server (if required)
-3. **Poll Interval** — How often to fetch data (minimum 15 seconds)
-4. **Glucose Thresholds** — Customize color ranges for your needs
-
-The server endpoint should return JSON in this format:
-```json
-{
-  "glucose": 125,
-  "trend": "Flat",
-  "timestamp": 1708000000,
-  "message": "",
-  "force_mode": -1
-}
-```
-
-Supported trend values: `RisingFast` (↑↑), `Rising` (↑), `FortyFiveUp` (↗), `Flat` (→), `FortyFiveDown` (↘), `Falling` (↓), `FallingFast` (↓↓). Dexcom/Nightscout names `DoubleUp`, `SingleUp`, `SingleDown`, and `DoubleDown` are also accepted (case-insensitive).
+Hotel-style sign-in pages don't work: the clock has no browser. Use a travel
+router or a phone hotspot there.
 
 ---
 
-## Button Controls
+## Buttons
 
-| Button | Short Press (<1s) | Double Press | Long Press (>1s) |
-|--------|-------------------|--------------|------------------|
-| Left | Toggle display mode | — | Reset display overrides |
-| Middle | Cycle brightness (10→40→100→200) | Show the clock's browser address | Snooze alerts |
-| Right | Previous display / context action | — | Reset display / context action |
+| Button | Press | Hold (1 s) |
+|---|---|---|
+| Left | previous screen | |
+| Middle | the pet waves (on the pet screen) | show the clock's address |
+| Right | next screen | |
 
----
+## What the matrix says
 
-## Display States
-
-| State | Color | Meaning |
-|-------|-------|---------|
-| Glucose number | Green | In range (80-180 mg/dL default) |
-| Glucose number | Orange | Low (70-80) or High (180-250) |
-| Glucose number | Red | Urgent low (<70) or Urgent high (>250) |
-| Dimmed + `!` | Yellow | Data 10-20 minutes old (warning) |
-| Glucose number | Gray | Data >20 min old or 5+ fetch failures (stale) |
-| `NO DATA` | Red | 10+ failures or never received data |
-| `NO WIFI` | Red | WiFi disconnected |
-| Setup AP name / `192.168.4.1` | Teal | On-device WiFi setup is available |
-| Connection failure detail | Teal | A trial WiFi join needs attention |
-| Network limitation detail | Orange | Associated, but DNS, data HTTPS, or NTP is blocked |
+| Shown | Meaning |
+|---|---|
+| glucose in green / amber / red | in range / low or high / urgent |
+| glucose with a `!` | the reading is getting old |
+| glucose in grey | the reading is too old (after the time set on Display) |
+| `NO` / `WIFI`, red | the saved network isn't reachable |
+| `NO` / `DATA`, red | the bridge doesn't answer or refuses the token |
+| scrolling teal text | setup: which network to join, or what to open |
+| scrolling amber text | on Wi-Fi, but the network blocks DNS or the bridge |
 
 ---
 
-## Troubleshooting
+## Updating
 
-### Device not detected via USB
-- Try a different USB-C cable (must be a data cable, not charge-only)
-- Connect directly to your computer, not through a USB hub
-- Install/reinstall CH340 drivers
-- Try a different USB port
+**From the dashboard:** build with `pio run`, then **Device → Firmware**, pick
+`.pio/build/esp32dev/firmware.bin` and install. The page names the clock and
+refuses files that aren't Pumpkin firmware for this hardware. The clock
+restarts and checks itself for about 15 seconds; if it isn't healthy, it goes
+back to the previous version by itself and the Device tab says so. Details:
+[`docs/ota-boot-validation.md`](docs/ota-boot-validation.md).
 
-### Upload fails with timeout
-- Hold the middle button while plugging in USB to enter flash mode
-- Try lowering upload speed: add `upload_speed = 115200` to `platformio.ini`
+**Over USB:** `pio run -t upload`. Settings stay either way.
 
-### Display stays on SETUP
-- Configure WiFi credentials via the Config page or by hardcoding in source
+## Recovery
 
-### Display shows NO WIFI
-- Check WiFi credentials in the Config page
-- Verify your WiFi network is 2.4GHz (ESP32 does not support 5GHz)
-- Check signal strength — move the device closer to your router
+Updates never touch the bootloader or partition table. If the clock doesn't
+start, enter flash mode (hold the middle button while connecting USB) and
+`pio run -t upload` again; settings stay unless you erase.
 
-### Display shows NO DATA
-- Verify the server URL is correct and reachable
-- Check the auth token if your server requires one
-- Visit the Debug page to see the last HTTP response code and body
+**Forgot the password?** Only a USB erase clears it, with all other settings:
+`pio run -t erase`, then `pio run -t upload`, and set the clock up again.
+**Device → Factory reset** does the same from the dashboard.
 
-### Watchdog resets (device keeps rebooting)
-- Connect serial monitor to see reset reason
-- Check for network issues causing long blocking operations
+## Restoring the Ulanzi firmware
 
----
-
-## Restoring Factory Firmware
-
-If you backed up the factory firmware in Step 1:
+With the backup from step 1:
 
 ```bash
 esptool.py -p /dev/cu.usbserial-1410 -b 460800 write_flash 0x0 tc001_factory_backup.bin
 ```
-
----
-
-## Updating Firmware
-
-**Over Wi-Fi (0.8 and later):** build with `pio run`, open the clock's web page →
-**Device** → **Update firmware**, pick `.pio/build/esp32dev/firmware.bin` and upload. The
-clock restarts into the new version and checks itself for about 15 seconds; if it doesn't
-come up healthy, it goes back to the previous version by itself and the Device page says so.
-
-**Over USB:**
-
-```bash
-pio run --target upload    # firmware; settings are kept
-```
-
-Settings are stored in NVS (non-volatile storage) and survive updates. Only a factory reset
-or an erase clears them.

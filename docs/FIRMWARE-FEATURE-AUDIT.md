@@ -1,7 +1,12 @@
-# Pumpkin firmware: feature audit for a rewrite
+# Pumpkin firmware: feature audit for the 1.0 rewrite
 
 State audited: `firmware/` at 0.10.0 + Unreleased (USB guard, image marker), 13 Oct 2026.
 Goal: decide per feature what a rewritten firmware keeps, reworks or drops.
+
+> **Done in 1.0.0 (18 Oct 2026).** This is the planning record; §11 lists what
+> the rewrite actually did with each decision. For the clock as it is now, see
+> [`CLOCK-DISPLAY-SPEC.md`](CLOCK-DISPLAY-SPEC.md) and
+> [`../firmware/README.md`](../firmware/README.md).
 
 **Verdicts:** **KEEP** (port as is, behaviour proven) · **REWORK** (keep the idea, change the design) · **DROP** · **DECIDE** (product call, no clear technical answer).
 
@@ -182,3 +187,33 @@ Suggestion: keep the Worker for the rewrite's v1 but put the data source behind 
 - Engine: registry, auto-cycle, fades, low-glucose lock, night schedule with Full Mute.
 - Platform: Wi-Fi + portal + enterprise + net check, `.local` name, password, web OTA + marker + rollback, live mirror.
 - Later / optional: extra pets, buzzer alerts, peer copy, Improv/web flasher, Nightscout-direct, Libre, on-device CareLink.
+
+## 11. Outcome: what 1.0.0 did
+
+| Decision | 1.0.0 |
+|---|---|
+| Data sources | Bridge `/clock` + demo only. Dexcom, LibreLinkUp and Nightscout-direct dropped; the bridge still falls back to Nightscout. |
+| TLS to the bridge | Certificate checked against pinned roots (Let's Encrypt, Google Trust Services, SSL.com, DigiCert, USERTrust, Amazon). |
+| `bridge_alert` (gap) | Shown: scrolls in amber right after the glucose. |
+| `message` | Scrolls in the rotation. No priority/kind yet. |
+| `force_mode` | Ignored by the clock (the bridge still sends `-1` for stock SugarClock). |
+| Demo source | Reworked: a 3-minute glucose loop through every range, every pump alert, TIR and IOB, a new reading every 5 s. |
+| Delta flash vs Trend screen | Delta flash kept (setting, on by default); Trend screen dropped. |
+| Stale warning | Unified: the warning starts at half the stale time. |
+| Pets | All eight kept, Patch the default; the dashboard previews them from the clock's own pet code. |
+| Timers, stopwatch, countdown, placeholders | Dropped. |
+| Buzzer alerts | Dropped; the buzzer pin is held low. |
+| Night mode | Reworked into a schedule: awake hours per weekday in minutes, dim or dark (Full Mute) at night. |
+| Brightness | Auto (light sensor) or manual, from the dashboard; no button for it. |
+| Colours | Three colour sets (classic, colour-blind friendly, calm) instead of free colours; gamma correction kept. |
+| Buttons | Left/right previous/next, middle wave, middle hold address. |
+| Wi-Fi, setup hotspot, enterprise, net check | Ported; checks run on the network task. NTP blocked → time from the bridge's `Date` header. |
+| Peer discovery + copy | Dropped. mDNS name kept. |
+| Improv serial | Dropped. |
+| Web UI | New Preact dashboard (Display, Pet, Schedule, Connections, Device) plus a setup page, single files gzipped into the firmware. |
+| API | One contract (`dashboard/src/contract.ts`); source test and alert clearing queued on the network task. |
+| Config | Settings per group as JSON in NVS (`pumpkin`), validated from one table; 0.x settings carried over once. |
+| Architecture (§9) | Pure core (`src/core`, host-tested, simulator) + ESP32 layer (`src/hal`); network task, render loop and web server share one locked state. No GFX/NeoMatrix. |
+| Updates | Upload check, first-boot validation and rollback kept; USB guard recognises 1.0 clocks. |
+| CareLink on the clock (§10) | Not done; the bridge stays. |
+| Size | 1.39 MB, 75 % of an OTA slot (was 80 %). |

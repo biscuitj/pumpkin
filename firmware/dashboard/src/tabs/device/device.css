@@ -1,0 +1,137 @@
+/* Device tab. */
+
+.device-body {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+.device-body:disabled {
+  opacity: 0.6;
+}
+
+.file {
+  font: inherit;
+  max-width: 100%;
+}
+.file::file-selector-button {
+  font: inherit;
+  font-weight: 600;
+  margin-right: 12px;
+  padding: 8px 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-control);
+  cursor: pointer;
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.progress progress {
+  flex: 1;
+  height: 10px;
+  accent-color: var(--primary);
+}
+.progress__text {
+  font-size: 0.875rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.btn--danger {
+  color: #fff;
+  background: var(--fail);
+  border-color: var(--fail);
+}
+.btn--danger-quiet {
+  color: var(--fail);
+  background: none;
+  border-color: transparent;
+  padding-left: 0;
+}
+
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--led-fail) 50%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--led-fail) 7%, var(--surface));
+}
+.confirm__title {
+  font-weight: 650;
+}
+
+.diag {
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+.diag__summary {
+  cursor: pointer;
+  width: max-content;
+}
+.diag__summary h2 {
+  display: inline;
+  font-size: 1.25rem;
+}
+.diag[open] .diag__summary {
+  margin-bottom: 4px;
+}
+.diag__list {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.diag__row {
+  display: grid;
+  grid-template-columns: 9em 1fr;
+  gap: 12px;
+  padding: 9px 14px;
+  font-size: 0.9375rem;
+}
+.diag__row + .diag__row {
+  border-top: 1px solid var(--line);
+}
+.diag__row dt {
+  color: var(--muted);
+}
+.diag__row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.buttons-test {
+  display: flex;
+  gap: 8px;
+}
+.btn-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  font-weight: 600;
+}
+.btn-key.is-down {
+  border-color: var(--led-ok);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

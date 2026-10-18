@@ -266,54 +266,54 @@ network name.
 
 1. On a phone or laptop, join the open network `Pumpkin-Setup-XXXX` that the
    clock shows.
-2. If a login window pops up, use it to open a normal browser, and go to
+2. If a sign-in window pops up, use it to open a normal browser, and go to
    `http://192.168.4.1`.
-3. On the **Wi-Fi** tab, choose your 2.4 GHz network, enter the password and
-   choose **Join this network**.
-4. The clock tests the network before saving it, then scrolls its new address,
-   for example `pumpkin-a1b2.local` or an IP address like `192.168.0.12`.
+3. Pick your 2.4 GHz network, enter the password and join. The clock tries the
+   network before it keeps it, then scrolls its new address, for example
+   `pumpkin-a1b2.local` and an IP address like `192.168.0.12`.
 
-School or company Wi-Fi with a username (WPA2-Enterprise) works too; see
-[`firmware/INSTALL.md`](../firmware/INSTALL.md), *School and WPA2-Enterprise
-WiFi*.
+School or company Wi-Fi with a username (WPA2-Enterprise) works too: choose
+**School or work login**. See [`firmware/INSTALL.md`](../firmware/INSTALL.md),
+*School and WPA2-Enterprise Wi-Fi*.
 
 ## 11. Point the clock at the bridge
 
 Back on your normal network, open the clock's address in a browser
-(`http://pumpkin-a1b2.local`, or the IP address). Forgot it? Double-press the
-clock's middle button.
+(`http://pumpkin-a1b2.local`, or the IP address). Forgot it? Hold the clock's
+middle button for a second.
 
-On the **Blood Sugar** tab:
+On the **Connections** tab, under **Pump data**, choose **Pumpkin bridge** and
+fill in:
 
 | field | value |
 |---|---|
-| Data Source | **Custom URL** |
-| Server URL | your bridge address + `/clock`, e.g. `https://pumpkin-bridge.your-subdomain.workers.dev/clock` |
-| Auth Token | the clock token from step 6 |
+| Bridge address | your bridge address + `/clock`, e.g. `https://pumpkin-bridge.your-subdomain.workers.dev/clock` |
+| Clock token | the clock token from step 6 |
 
-Choose **Save Configuration**. Within a minute the clock shows the glucose.
+**Test connection** checks both and says which part fails (address, token,
+CareLink); then **Save**. Within a minute the clock shows the glucose.
 
 Then, while you're there:
-- **Clocks** tab: give the clock a name (its address becomes `name.local`) and,
-  if you like, a password for this web page (user `pumpkin`).
-- **Display** tab: night mode, brightness. *Full Mute* turns the screen and
-  sound off completely during the night hours, for example at school after
-  hours.
-- **Blood Sugar** tab: glucose thresholds and colours.
+- **Device** tab: give the clock a name (its address becomes `name.local`),
+  check the time zone and, if you like, set a password for the dashboard
+  (user `pumpkin`).
+- **Display** tab: which screens, glucose unit, ranges and colours,
+  brightness. The mirror at the top shows what the clock shows.
+- **Pet** tab: which pet, and what shows next to it.
+- **Schedule** tab: awake hours per day. At night the clock dims, or goes dark
+  completely (for example at school after hours).
 
-A second clock? Do steps 9 and 10 for it, then on the first clock's **Clocks**
-tab tick the new one under *Copy Settings to Other Clocks*, include the data
-source, and copy.
+A second clock? Do steps 9 to 11 for it.
 
 ---
 
 ## Day to day
 
-- **Updating the clock:** build with `pio run` in `firmware/` and upload
-  `firmware/.pio/build/esp32dev/firmware.bin` in the clock's web page
-  (**Device → Update firmware**). The page shows the clock's name next to the
-  file picker, and only Pumpkin firmware for this hardware is accepted. Settings stay. If the new version doesn't start
-  properly, the clock goes back to the previous one by itself.
+- **Updating the clock:** build with `pio run` in `firmware/` and install
+  `firmware/.pio/build/esp32dev/firmware.bin` from the dashboard
+  (**Device → Firmware**). The page shows the clock's name, and only Pumpkin
+  firmware for this hardware is accepted. Settings stay. If the new version
+  doesn't start properly, the clock goes back to the previous one by itself.
 - **Updating the bridge:** `git pull`, then in `bridge/`: `npm install` and
   `npx wrangler deploy`. Your `wrangler.toml` is never overwritten by `git pull`.
 - **`CARELINK LOGIN NEEDED`** in `/clock` (`bridge_alert`): CareLink rejected the
@@ -377,12 +377,12 @@ should show `"nightscout_upload"` with `"ok": true`.
 | `/clock` answers `401` | wrong token, or a space pasted along | `npx wrangler secret put CLOCK_TOKEN` again and enter the same value in the clock |
 | times an hour or two off | the pump's clock or time zone | check the pump's time; send the `/debug` output to whoever helps you |
 | clock: `NO WIFI` | wrong password, or a 5 GHz-only network | the setup network comes back after about two minutes; join it and choose the network again |
-| clock: `NO DATA` | wrong Server URL or token | check both on the Blood Sugar tab; test with the `curl` from step 8 |
+| clock: `NO DATA` | wrong bridge address or token | **Connections** shows which; test with the `curl` from step 8 |
 | forgot the clock's web password | | only a USB reset clears it: in `firmware/`, `pio run -t erase` (the guard shows the clock's name and asks first) then `pio run -t upload`, and set the clock up again |
 | upload: `no Ulanzi clock (CH340 USB serial) is connected` | charge-only cable, a hub, or (Windows) no CH340 driver | use a data cable directly on the computer; the message lists the serial ports it did see |
 | upload: `more than one CH340 device is connected` | another ESP32 board on USB | unplug it, or add `--upload-port PORT` |
 | upload: `couldn't read the device` | the clock isn't in download mode | hold the middle button while plugging in the cable, then try again |
-| update page: `That file is not Pumpkin firmware` (or *for other hardware*, *another chip*) | the wrong `.bin`: another project, or not `firmware/.pio/build/esp32dev/firmware.bin` | build with `pio run` in `firmware/` and upload that file; the clock didn't change |
+| update: `That's ESP32 firmware, but not Pumpkin` (or *different hardware*, *different chip*) | the wrong `.bin`: another project, or not `firmware/.pio/build/esp32dev/firmware.bin` | build with `pio run` in `firmware/` and install that file; the clock didn't change |
 
 More on the clock (buttons, screens, recovery):
 [`firmware/INSTALL.md`](../firmware/INSTALL.md). More on the bridge:
@@ -395,6 +395,10 @@ More on the clock (buttons, screens, recovery):
   needed; next time a login is due, use `npm run login`. Add `LANG = "nl"` to
   `wrangler.toml` to keep the Dutch alert texts (the default is now English).
   Your Worker keeps its name and address; nothing changes on the clock.
+- **Clock on Pumpkin 0.8 to 0.12:** install 1.0 from the old web page
+  (Device → Update firmware). It carries over Wi-Fi, the bridge address and
+  token, the name, password and most display settings, then opens the new
+  dashboard. Check the time zone on the **Device** tab. What isn't carried
+  over: [`firmware/INSTALL.md`](../firmware/INSTALL.md), *Coming from Pumpkin 0.x*.
 - **Clock on SugarClock or Pumpkin 0.7 and older:** flash once over USB
-  (step 9) **without erasing**; settings stay. From 0.8 on, updates go through
-  the web page.
+  (step 9) **without erasing**; settings are carried over the same way.
