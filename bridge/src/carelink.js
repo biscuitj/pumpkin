@@ -10,7 +10,7 @@
 //   snapshot - compact patient data, written only when something changed
 //   status   - errors and backoff, written only when the state changes
 
-import { buildSnapshot, snapshotFingerprint, updateLatches, detectSetChange } from './carelink-data.js';
+import { buildSnapshot, snapshotFingerprint, updateLatches, detectSetChange, lastSeen } from './carelink-data.js';
 
 const MIN = 60 * 1000;
 export const DEFAULT_DISCOVERY_URL = 'https://clcloud.minimed.eu/connect/carepartner/v13/discover/android/3.8';
@@ -273,6 +273,7 @@ export async function pollOnce(env, now, fetchImpl = fetch) {
   const prev = await kv.get('snapshot', { type: 'json' });
   // Last detected set change (tubing fill) is carried from snapshot to snapshot.
   snapshot.set_change_at = detectSetChange(prev, snapshot, result.patientData) || (prev && prev.set_change_at) || null;
+  snapshot.seen = lastSeen(prev && prev.seen, snapshot);
   snapshot.latches = updateLatches(prev && prev.latches, snapshot, now);
   for (const [id, l] of Object.entries(snapshot.latches)) {
     const was = prev && prev.latches && prev.latches[id];

@@ -6,7 +6,7 @@
 
 namespace pk {
 
-constexpr int kMaxWarnings = 7;
+constexpr int kMaxWarnings = 8;
 
 struct BridgeData {
     bool valid;           // a reading is present

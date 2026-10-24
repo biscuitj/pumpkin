@@ -191,12 +191,15 @@ test('cron keepalive polls CareLink when due', async () => {
 test('clock warnings: categories map to icons/texts, deduped, priority order, glucose/info ignored', () => {
   const a = (category) => ({ category });
   assert.deepEqual(clockWarnings([a('delivery'), a('battery_now'), a('reservoir_low'), a('sensor_change'), a('set_change')]),
-    ['warning', 'battery', 'reservoir', 'sensor', 'set']);
+    ['warning', 'battery', 'reservoir', 'sensor_change', 'sensor', 'set']);
   assert.deepEqual(clockWarnings([a('battery_now'), a('battery_low'), a('glucose'), a('info'), a('other'), a('bg_required')]),
     ['battery', 'bg']);
   assert.deepEqual(clockWarnings([a('calibration'), a('sensor_signal'), a('set_connect')]), ['warning']);
   assert.deepEqual(clockWarnings([]), []);
   assert.deepEqual(clockWarnings([a('battery_now')], [], null, true), ['battery', 'sensor']); // sensor running out
+  // replace-sensor alert, active or remembered: red sensor_change, plus sensor for older firmware
+  assert.deepEqual(clockWarnings([], ['sensor']), ['sensor_change', 'sensor']);
+  assert.deepEqual(clockWarnings([a('sensor_change')], [], null, true), ['sensor_change', 'sensor']);
 });
 
 test('sensor warning 3 h before the sensor ends (default), not during warm-up, SENSOR_WARN_MIN overrides', async () => {

@@ -32,8 +32,9 @@ enum class Band : uint8_t { UrgentLow, Low, InRange, High, UrgentHigh, Stale };
 
 enum class Trend : uint8_t { DoubleUp, SingleUp, FortyFiveUp, Flat, FortyFiveDown, SingleDown, DoubleDown, Unknown };
 
-// Pump alerts the bridge sends in "warnings", in its priority order.
-enum class Warning : uint8_t { None, Suspended, Alert, Battery, Reservoir, Bg, Sensor, Set, Count };
+// Pump alerts the bridge sends in "warnings" (the bridge sets the order).
+// Sensor: runs out soon (yellow). SensorChange: the pump's replace-sensor alert (red).
+enum class Warning : uint8_t { None, Suspended, Alert, Battery, Reservoir, Bg, Sensor, Set, SensorChange, Count };
 
 // Screens in rotation order (contract SCREENS), plus the ones the engine
 // shows by itself. Names, never numbers, go over the API.

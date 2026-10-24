@@ -101,22 +101,26 @@ export const previewOnClock = (body: DisplayPreview) => request<void>('POST', '/
 export const getPetSprites = () => request<PetSprites>('GET', '/api/display/pets');
 
 export interface Frame {
-  rgb: Uint8Array;
+  /** null when unchanged (304) or not ready yet (204). */
+  rgb: Uint8Array | null;
   screen: string | null;
   etag: string | null;
+  /** 'low' while the low lock holds the glucose screen. */
+  hold: string | null;
 }
 
-/** One mirror frame; null when unchanged (304) or not ready yet (204). */
-export async function getFrame(etag: string | null): Promise<Frame | null> {
+/** One mirror frame, or only its headers when nothing changed. */
+export async function getFrame(etag: string | null): Promise<Frame> {
   const res = await fetch('/api/display/frame', {
     headers: etag ? { 'If-None-Match': etag } : {},
     cache: 'no-store',
   });
-  if (res.status === 304 || res.status === 204) return null;
+  const hold = res.headers.get('X-Hold');
+  if (res.status === 304 || res.status === 204) return { rgb: null, screen: null, etag, hold };
   if (!res.ok) throw new ApiError(`The clock answered ${res.status}.`, res.status);
   const buf = new Uint8Array(await res.arrayBuffer());
   if (buf.length !== 768) throw new ApiError('Unexpected frame size.', res.status);
-  return { rgb: buf, screen: res.headers.get('X-Screen'), etag: res.headers.get('ETag') };
+  return { rgb: buf, screen: res.headers.get('X-Screen'), etag: res.headers.get('ETag'), hold };
 }
 
 export const clearAlerts = () => request<void>('POST', '/api/alerts/clear');

@@ -131,7 +131,7 @@ All times are epoch ms (UTC), with the hour correction already applied.
   "banners": [ { "type": "TEMP_TARGET", "minutes": 95 } ],
   "pump":   { "reservoir_units": 42.5, "reservoir_pct": 25, "battery_pct": 75, "suspended": false,
               "in_range": true, "auto_mode": "AUTO_BASAL", "system_status": "NO_ERROR_MESSAGE" },
-  "sensor": { "hours_left": 31, "minutes_left": null, "state": "NO_ERROR_MESSAGE", "in_range": true },
+  "sensor": { "hours_left": 31, "minutes_left": null, "state": "NO_ERROR_MESSAGE", "in_range": true, "warmup_at": null },
   "phone":  { "battery_pct": 88, "in_range": true },
   "carelink_stats": { "time_in_range": 77, "below": 2, "above": 21, "average": 141 }
 }
@@ -222,14 +222,15 @@ deduplicated, in priority order, and `[]` when the pump data is old.
 | `battery` | battery_now, battery_low | light blue battery |
 | `reservoir` | reservoir_empty, reservoir_low | green reservoir |
 | `bg` | bg_required | red blood drop |
-| `sensor` | sensor_change; also from `SENSOR_WARN_MIN` (default 180) minutes before the sensor ends, not during a warm-up | `SENSOR` (narrow letters), yellow |
+| `sensor_change` | sensor_change (777, 794), active or remembered; always sent together with `sensor`, so firmware without `sensor_change` still shows a sensor warning | `! SENSOR !`, red |
+| `sensor` | `SENSOR_WARN_MIN` (default 180) minutes before the sensor ends, not during a warm-up; and next to every `sensor_change` | `SENSOR` (narrow letters), yellow; hidden when `sensor_change` is there |
 | `set` | set_change | `SET`, yellow |
 
 The clock ignores ids it doesn't know.
 
 **Reminders stay on after they're dismissed on the pump.** CareLink drops a
 notification from the active list as soon as it's dismissed, even though the action
-hasn't happened yet. So `battery`, `reservoir`, `bg`, `sensor` and `set` are
+hasn't happened yet. So `battery`, `reservoir`, `bg`, `sensor` (shown as `sensor_change`) and `set` are
 remembered (`snapshot.latches`) and stay in `warnings` until one of these happens:
 
 | id | until |
@@ -237,10 +238,13 @@ remembered (`snapshot.latches`) and stay in `warnings` until one of these happen
 | `set` | a tubing fill: the reservoir drops ≥ 5 U more than the recorded boluses and basal, while the pump is suspended (on 11 Oct: −9.2 U in 4 min) or, with no suspend seen, between pump readings ≤ 12 min apart with IOB up by < 0.3 U (on 14 Oct: −9.6 U, IOB 1.40 → 1.25) |
 | `reservoir` | the reservoir goes up by ≥ 5 U (a new reservoir) |
 | `battery` | the pump battery % goes up |
-| `sensor` | sensor hours left go up by ≥ 12 (a new sensor) |
+| `sensor` | a sensor warm-up after the alert (live `sensorState`, or a `WARM_UP` entry in the SG history), or sensor hours left go up by ≥ 12 (a new sensor) |
 | `bg` | a finger-prick BG marker after the alert; for SmartGuard's BG required (819, 821, 822, 829) also the pump back in Auto Basal |
 | any | 72 h have passed, or `POST /reminders/clear?id=<id>` (or `id=all`) |
 
+A reminder that starts while the pump or sensor isn't live takes its baseline from
+the last live value seen before the alert (`snapshot.seen`), not from the first
+reading back, which may already be the new part's.
 A reminder that was dismissed between two polls is picked up from the pump's
 cleared history (up to 2 h back). `suspended` and `warning` aren't remembered:
 they show only while they're active on the pump.

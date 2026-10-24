@@ -22,6 +22,8 @@ const uint32_t kReservoir[8] = {0x00FFE000, 0x00801300, 0x00A01F00, 0x00A01F00, 
 const uint32_t kBloodDrop[8] = {0x00010000, 0x00010000, 0x00038000, 0x0006C000, 0x000DE000, 0x000FE000, 0x000FE000, 0x0007C000};
 const uint32_t kTriangle[8] = {0x00018000, 0x0003C000, 0x00066000, 0x000E7000, 0x001E7800, 0x003FFC00, 0x007E7E00, 0x00FFFF00};
 const uint32_t kSensor[8] = {0x3BD27338, 0x421A84A4, 0x421A84A4, 0x339664B8, 0x0A1614A8, 0x0A1214A4, 0x73D2E324, 0x00000000};
+// "! SENSOR !": narrower E to make room for the marks.
+const uint32_t kSensorChange[8] = {0x9DD27339, 0xA11A84A5, 0xA11A84A5, 0x999664B9, 0x851614A9, 0x051214A4, 0xB9D2E325, 0x00000000};
 const uint32_t kSet[8] = {0x00E7DF00, 0x01141500, 0x01040400, 0x00E78400, 0x00140400, 0x01140400, 0x00E7C400, 0x00000000};
 
 struct WarningArt {
@@ -38,6 +40,7 @@ const WarningArt kWarningArt[(int)Warning::Count] = {
     {kBloodDrop, 0xEA4335},  // bg: red
     {kSensor, 0xFFE000},     // sensor: yellow
     {kSet, 0xFFE000},        // set: yellow
+    {kSensorChange, 0xEA4335},  // sensor change: red
 };
 
 } // namespace

@@ -10,7 +10,7 @@ const iso = (ms) => new Date(ms).toISOString();
 const TOKENS = () => ({ access_token: jwt(NOW + 100 * HOUR), refresh_token: 'rt-0', client_id: 'client', refreshed_at: NOW });
 
 /** patientData with the given pump state; notification and marker times are absolute. */
-function pdAt(t, { mode = 'AUTO_BASAL', reservoir = 113.5, battery = 75, sensorHours = 146, active = [], cleared = [], markers = [], suspended = false, banners, extraMarkers = [], iob = 1.35, inRange = true } = {}) {
+function pdAt(t, { mode = 'AUTO_BASAL', reservoir = 113.5, battery = 75, sensorHours = 146, active = [], cleared = [], markers = [], suspended = false, banners, extraMarkers = [], iob = 1.35, inRange = true, sgs, sensorState = 'NO_ERROR_MESSAGE', sensorInRange = true } = {}) {
   const shiftIso = iso;
   return patientData({
     extra: {
@@ -23,6 +23,9 @@ function pdAt(t, { mode = 'AUTO_BASAL', reservoir = 113.5, battery = 75, sensorH
       lastMedicalDeviceDataUpdateServerTime: t - 20000,
       pumpBatteryLevelPercent: battery,
       sensorDurationHours: sensorHours,
+      sensorState,
+      conduitSensorInRange: sensorInRange,
+      ...(sgs ? { sgs } : {}),
       notificationHistory: {
         activeNotifications: active.map(([faultId, at]) => ({ faultId, dateTime: shiftIso(at) })),
         clearedNotifications: cleared.map(([faultId, at, clearedAt]) => ({ faultId, triggeredDateTime: shiftIso(at), dateTime: shiftIso(clearedAt) })),
@@ -284,4 +287,56 @@ test('suspendState reads pumpSuspended without a banner too', () => {
   const s = buildSnapshot(pdAt(NOW, { suspended: true, banners: [] }), NOW);
   assert.equal(suspendState(s), 'manual');
   assert.equal(suspendState(buildSnapshot(pdAt(NOW, {}), NOW)), null);
+});
+
+/** 24 h of SGs ending just before t, plus value-less WARM_UP entries at the given times. */
+function sgsUntil(t, warmups = []) {
+  const out = [];
+  for (let i = 287; i >= 0; i--) out.push({ sg: 120, timestamp: iso(t - 3 * MIN - i * 5 * MIN), sensorState: 'NO_ERROR_MESSAGE' });
+  for (const w of warmups) out.push({ sg: 0, timestamp: iso(w), sensorState: 'WARM_UP' });
+  return out;
+}
+
+test('expired sensor swapped while not live: the warm-up ends the reminder (23 Oct)', async () => {
+  const T = NOW - 6 * HOUR;
+  const warm = [];
+  for (let m = 70; m <= 180; m += 5) warm.push(T + m * MIN);
+  const { results } = await polls([
+    [T, { sensorHours: 0, sensorInRange: false, active: [[794, T]], sgs: sgsUntil(T) }],
+    [T + 30 * MIN, { sensorHours: 0, sensorInRange: false, cleared: [[794, T, T + 20 * MIN]], sgs: sgsUntil(T) }],
+    // back with the new sensor, warm-up already over: only the SG history shows it
+    [T + 4 * HOUR, { sensorHours: 167, sgs: sgsUntil(T + 4 * HOUR, warm) }],
+  ]);
+  assert.deepEqual(results.map((r) => r.warnings), [['sensor_change', 'sensor'], ['sensor_change', 'sensor'], []]);
+  assert.equal(results[2].snapshot.latches.sensor.how, 'pump data');
+});
+
+test('warm-up live on the pump ends the sensor reminder', async () => {
+  const T = NOW - 6 * HOUR;
+  const { results } = await polls([
+    [T, { sensorHours: 0, active: [[794, T]], sgs: sgsUntil(T) }],
+    [T + 20 * MIN, { sensorHours: 0, sensorState: 'WARM_UP', sgs: sgsUntil(T) }],
+  ]);
+  assert.deepEqual(results.map((r) => r.warnings), [['sensor_change', 'sensor'], []]);
+});
+
+test('a warm-up before the alert does not end the sensor reminder', async () => {
+  const T = NOW - 6 * HOUR;
+  const old = [T - 5 * HOUR, T - 5 * HOUR + 5 * MIN];
+  const { results } = await polls([
+    [T, { sensorHours: 0, active: [[777, T]], sgs: sgsUntil(T, old) }],
+    [T + HOUR, { sensorHours: 0, sgs: sgsUntil(T + HOUR, old) }],
+  ]);
+  assert.deepEqual(results.map((r) => r.warnings), [['sensor_change', 'sensor'], ['sensor_change', 'sensor']]);
+});
+
+test('reminder starting out of range takes its baseline from the last live value', async () => {
+  const T = NOW - 3 * HOUR;
+  const { results } = await polls([
+    [T - 10 * MIN, { battery: 25 }],                                        // live, no alert yet
+    [T + 5 * MIN, { battery: 0, reservoir: 0, inRange: false, active: [[104, T]] }],  // alert, pump away
+    [T + 60 * MIN, { battery: 100 }],                                       // back with a new AA
+  ]);
+  assert.deepEqual(results.map((r) => r.warnings), [[], ['battery'], []]);
+  assert.equal(results[1].snapshot.latches.battery.start, 25);
 });

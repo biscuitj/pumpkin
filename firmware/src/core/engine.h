@@ -80,6 +80,7 @@ public:
     bool preview(const Preview& p, uint32_t now);  // false during an urgent low
 
     bool lowLocked() const { return lowLocked_; }
+    bool urgent() const { return urgent_; }  // previews wait
 
 private:
     enum class Fresh : uint8_t { None, Fresh, Warning, Stale };

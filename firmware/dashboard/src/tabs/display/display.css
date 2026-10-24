@@ -135,6 +135,24 @@
 .mirror__nav {
   white-space: nowrap;
 }
+.mirror__nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.mirror__hold,
+.mirror__note {
+  margin: 6px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--r-control);
+  font-size: 0.875rem;
+}
+.mirror__hold {
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
+}
+.mirror__note {
+  color: var(--muted);
+  text-align: center;
+}
 
 .autosave {
   font-size: 0.8125rem;

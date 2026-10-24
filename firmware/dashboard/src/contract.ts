@@ -291,15 +291,19 @@ export type DisplayPatch = { [K in keyof DisplaySettings]?: Partial<DisplaySetti
  * GET /api/display/frame: what the matrix shows, 768 bytes of RGB (32×8, row by
  * row, before brightness), `application/octet-stream`.
  * - Header `X-Screen`: a ScreenId, or 'status' / 'boot' / 'update'.
+ * - Header `X-Hold: low` while the low lock keeps the glucose screen (on 204 and
+ *   304 too), so the dashboard can say why next/prev and previews wait.
  * - ETag + If-None-Match → 304 when unchanged; 204 while no frame is ready yet.
  * - The firmware only captures frames while someone asks for them.
  *
- * POST /api/display/next, /api/display/prev → 204 (ignored during the low lock).
+ * POST /api/display/next, /api/display/prev → 204; 409 { field: 'low_lock' }
+ * during the low lock.
  */
 
 /**
  * POST /api/display/preview → 202: shows a screen for 8 s; alerts play each alert
- * once (5 s each). Never over an urgent low or during the low lock.
+ * once (5 s each). 409 { field: 'low_lock' | 'urgent' } during the low lock or
+ * an urgent reading.
  */
 export type DisplayPreview =
   | { screen: 'pet'; pet: PetId; range: 'low' | 'in_range' | 'high' }

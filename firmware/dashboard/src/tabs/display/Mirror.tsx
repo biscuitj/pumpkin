@@ -1,5 +1,20 @@
+import { signal } from '@preact/signals';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { displayNext, displayPrev, getFrame, toApiError } from '../../api';
+
+// A short message under the mirror, e.g. why the clock didn't show a preview.
+const note = signal<string | null>(null);
+let noteTimer: ReturnType<typeof setTimeout> | undefined;
+export function noteOnMirror(message: string) {
+  note.value = message;
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => (note.value = null), 5000);
+}
+
+/** Ask the clock to show something; when it refuses, say why under the mirror. */
+export function tryOnClock(fn: () => Promise<void>) {
+  void fn().catch((e) => noteOnMirror(toApiError(e).message));
+}
 
 const LABELS: Record<string, string> = {
   glucose: 'Glucose',
@@ -23,6 +38,7 @@ export function Mirror() {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [screen, setScreen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hold, setHold] = useState<string | null>(null);
   const kick = useRef<() => void>(() => {});
 
   useEffect(() => {
@@ -35,7 +51,8 @@ export function Mirror() {
       if (!document.hidden) {
         try {
           const f = await getFrame(etag);
-          if (f && alive && canvas.current) {
+          if (alive) setHold(f.hold);
+          if (f.rgb && alive && canvas.current) {
             etag = f.etag;
             draw(canvas.current, f.rgb);
             setScreen(f.screen);
@@ -62,9 +79,10 @@ export function Mirror() {
       await fn();
       kick.current();
     } catch (e) {
-      setError(toApiError(e).message);
+      noteOnMirror(toApiError(e).message);
     }
   };
+  const held = hold === 'low';
 
   return (
     <figure class="mirror">
@@ -79,16 +97,38 @@ export function Mirror() {
         />
       </div>
       <figcaption class="mirror__bar">
-        <button type="button" class="btn btn--quiet mirror__nav" onClick={() => go(displayPrev)} aria-label="Previous screen">
+        <button
+          type="button"
+          class="btn btn--quiet mirror__nav"
+          onClick={() => go(displayPrev)}
+          disabled={held}
+          aria-label="Previous screen"
+        >
           ‹ Previous
         </button>
         <span class="mirror__screen" aria-live="polite">
           {error ? <span class="mirror__error">{error}</span> : screen ? (LABELS[screen] ?? screen) : 'Connecting…'}
         </span>
-        <button type="button" class="btn btn--quiet mirror__nav" onClick={() => go(displayNext)} aria-label="Next screen">
+        <button
+          type="button"
+          class="btn btn--quiet mirror__nav"
+          onClick={() => go(displayNext)}
+          disabled={held}
+          aria-label="Next screen"
+        >
           Next ›
         </button>
       </figcaption>
+      {held ? (
+        <p class="mirror__hold" role="status">
+          <strong>Low reading:</strong> the clock stays on it, with the other screens and the buttons paused, until
+          it's back above Low. <a href="#/display">Display → Glucose</a> sets Low and this lock.
+        </p>
+      ) : note.value ? (
+        <p class="mirror__note" role="status">
+          {note.value}
+        </p>
+      ) : null}
     </figure>
   );
 }

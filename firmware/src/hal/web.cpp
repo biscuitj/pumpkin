@@ -103,6 +103,7 @@ void sendApi(AsyncWebServerRequest* r, const pk::HttpResponse& out) {
     }
     if (!out.etag.empty()) res->addHeader("ETag", out.etag.c_str());
     if (out.screen) res->addHeader("X-Screen", out.screen);
+    if (out.hold) res->addHeader("X-Hold", out.hold);
     res->addHeader("Cache-Control", "no-store");
     r->send(res);
 }

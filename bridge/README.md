@@ -46,7 +46,7 @@ firmware can show the glucose too. The Pumpkin firmware reads `glucose`, `trend`
 | `source` | `carelink` or `nightscout` |
 | `alert` | highest-priority active pump alert as short text (`LANG`), `""` if none |
 | `alerts[]` | all active pump alerts, priority order; glucose alerts and info messages left out |
-| `warnings` | what the clock's pump alerts screen shows, in order: `suspended`, `warning`, `battery`, `reservoir`, `bg`, `sensor`, `set` |
+| `warnings` | what the clock's pump alerts screen shows, in order: `suspended`, `warning`, `battery`, `reservoir`, `bg`, `sensor_change`, `sensor`, `set`. `sensor` = sensor runs out soon, `sensor_change` = replace-sensor alert on (always with `sensor`, for older firmware) |
 | `temp_target`, `temp_target_min` | temp target active + minutes left |
 | `sensor_hours_left`, `reservoir_units`, `pump_battery`, `phone_battery` | as reported; `null` if unknown or old |
 | `bridge_alert` | `CARELINK LOGIN NEEDED` (token rejected → redo the login) or `CARELINK ERROR` (3+ failures in a row); Dutch with `LANG = "nl"` |

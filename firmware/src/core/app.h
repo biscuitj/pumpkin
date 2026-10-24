@@ -58,6 +58,10 @@ struct Mirror {
     Screen screen = Screen::Boot;
     uint32_t sequence = 0;
     bool ready = false;
+    // Why the rotation is held, updated every frame: the dashboard says so
+    // instead of next/prev silently doing nothing.
+    bool lowLocked = false;
+    bool urgent = false;
     uint32_t requestedAt = 0;  // the matrix is only copied while someone watches
     bool watched(uint32_t now) const { return requestedAt != 0 && now - requestedAt < 5000; }
 };

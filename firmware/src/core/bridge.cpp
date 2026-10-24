@@ -9,7 +9,7 @@
 namespace pk {
 
 namespace {
-const char* const kWarningIds[] = {"", "suspended", "warning", "battery", "reservoir", "bg", "sensor", "set"};
+const char* const kWarningIds[] = {"", "suspended", "warning", "battery", "reservoir", "bg", "sensor", "set", "sensor_change"};
 static_assert(sizeof(kWarningIds) / sizeof(kWarningIds[0]) == (size_t)Warning::Count, "warning ids");
 } // namespace
 
@@ -53,6 +53,15 @@ ParseResult parseClock(const char* body, size_t len, BridgeData& out) {
         bool seen = false;
         for (uint8_t i = 0; i < out.warningCount; ++i) seen |= out.warnings[i] == id;
         if (!seen) out.warnings[out.warningCount++] = id;
+    }
+    // The bridge sends "sensor" next to "sensor_change" for older firmware: show only the red one.
+    bool change = false;
+    for (uint8_t i = 0; i < out.warningCount; ++i) change |= out.warnings[i] == Warning::SensorChange;
+    if (change) {
+        uint8_t n = 0;
+        for (uint8_t i = 0; i < out.warningCount; ++i)
+            if (out.warnings[i] != Warning::Sensor) out.warnings[n++] = out.warnings[i];
+        out.warningCount = n;
     }
 
     copyStr(out.message, src["message"] | "");
@@ -140,7 +149,7 @@ void demoData(uint32_t uptimeMs, BridgeData& out, uint32_t& readingAgeSec) {
     out.iob = 0.2f + 1.5f * (0.5f + 0.5f * sinf((float)n / 20.0f));
     out.tempTarget = ((n / 36) % 3) == 1;
     // Every two minutes the next alert type, with quiet stretches between.
-    const uint32_t k = (n / 24) % 9;
+    const uint32_t k = (n / 24) % ((uint32_t)Warning::Count + 1);
     if (k >= 2) {
         out.warnings[0] = (Warning)(k - 1);
         out.warningCount = 1;

@@ -60,6 +60,8 @@ const EngineOutput& Runner::frame(const HardwareInputs& hw) {
     {
         Locked l(app_.mutex);
         Mirror& m = app_.mirror;
+        m.lowLocked = engine_.lowLocked();
+        m.urgent = engine_.urgent();
         if (m.watched(now)) {
             if (!m.ready || !(m.frame == out_.frame)) {
                 m.frame = out_.frame;

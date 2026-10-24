@@ -7,6 +7,7 @@ import { Segmented } from '../../ui/inputs';
 import { NumberField } from '../../ui/NumberField';
 import { Switch } from '../../ui/Switch';
 import { PetSprite } from '../pet/PetSprite';
+import { tryOnClock } from './Mirror';
 
 interface Props {
   hook: DisplaySettingsHook;
@@ -168,7 +169,7 @@ function Row({ title, desc, fixed, on = true, onToggle, children }: RowProps) {
 
 function PreviewButton({ onClick, children }: { onClick: () => Promise<void>; children: ComponentChildren }) {
   return (
-    <button type="button" class="btn btn--small" onClick={() => void onClick().catch(() => {})}>
+    <button type="button" class="btn btn--small" onClick={() => tryOnClock(onClick)}>
       {children}
     </button>
   );

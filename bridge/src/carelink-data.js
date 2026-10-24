@@ -264,6 +264,16 @@ export function buildSnapshot(pd, fetchedAtMs) {
     && !(num(pd.reservoirRemainingUnits) === 0 && num(pd.pumpBatteryLevelPercent ?? pd.medicalDeviceBatteryLevelPercent) === 0);
   const sensorLive = pumpLive && pd.conduitSensorInRange !== false;
   const pumpNum = (v) => (pumpLive ? num(v) : null);
+  // Newest warm-up: only a new sensor warms up. Each SG carries the sensor state, so
+  // a warm-up that fell between polls (or while the bridge was idle) is still seen.
+  const warm = (v) => String(v || '').toUpperCase().includes('WARM');
+  let warmupAt = null;
+  for (const s of Array.isArray(pd.sgs) ? pd.sgs : []) {
+    if (!warm(s.sensorState)) continue;
+    const t = shift(parseCareLinkDate(s.timestamp ?? s.datetime));
+    if (t && t <= fetchedAtMs + 5 * MIN && (!warmupAt || t > warmupAt)) warmupAt = t;
+  }
+  if (warm(pd.sensorState)) warmupAt = Math.max(warmupAt || 0, serverDataAt || fetchedAtMs);
 
   return {
     v: 1,
@@ -293,6 +303,7 @@ export function buildSnapshot(pd, fetchedAtMs) {
       minutes_left: sensorLive ? num(pd.sensorDurationMinutes) : null,
       state: pd.sensorState || null,
       in_range: pd.conduitSensorInRange ?? null,
+      warmup_at: warmupAt,
     },
     phone: {
       battery_pct: num(pd.conduitBatteryLevel),
@@ -335,9 +346,26 @@ function latchMeasure(id, snap) {
   return null;
 }
 
+/**
+ * Last live value of each latch measure, carried from snapshot to snapshot:
+ * { reservoir|battery|sensor: { v, at } }. A reminder that starts while the pump
+ * or sensor is out of range takes its baseline from here.
+ */
+export function lastSeen(prev, snap) {
+  const out = { ...(prev || {}) };
+  const at = snap.device_data_at || snap.fetched_at;
+  for (const id of ['reservoir', 'battery', 'sensor']) {
+    const v = latchMeasure(id, snap);
+    if (v !== null && v !== undefined) out[id] = { v, at };
+  }
+  return out;
+}
+
 /** Did the pump data since the latch started show the action? */
 function latchResolved(id, latch, snap) {
   const now = latchMeasure(id, snap);
+  // Only a new sensor warms up: the continuous sensor state, no number heuristics.
+  if (id === 'sensor' && snap.sensor.warmup_at && snap.sensor.warmup_at > latch.since) return true;
   if (id === 'bg') {
     if (snap.bg_at && snap.bg_at > latch.since) return true;
     return SMARTGUARD_BG_CODES.has(String(latch.code)) && snap.pump.auto_mode === 'AUTO_BASAL';
@@ -385,7 +413,11 @@ export function updateLatches(prev, snap, now) {
     if (cur && (!cur.done || same || before)) continue;  // already on, or this episode was handled
     // Keep how the previous one ended: once replaced it is otherwise gone from /debug.
     const prevDone = cur ? { since: cur.since, code: cur.code, low: cur.low, done_at: cur.done_at, how: cur.how, value: cur.value } : undefined;
-    const m0 = latchMeasure(id, snap);
+    // No live value now (out of range, expired sensor): take the last one seen before
+    // the alert. Otherwise the first reading back, often the new part's, became the
+    // baseline and the reminder could never end (sensor swap, 23 Oct).
+    const seen = snap.seen && snap.seen[id];
+    const m0 = latchMeasure(id, snap) ?? (seen && seen.at <= src.at ? seen.v : null);
     out[id] = { since: src.at, code: src.code, low: m0, start: m0, ...(prevDone ? { prev: prevDone } : {}) };
   }
   for (const [id, l] of Object.entries(out)) {

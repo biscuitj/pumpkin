@@ -78,7 +78,8 @@ Each alert shows for 5 s, highest priority first:
 | `battery` | light blue (64B5F6) battery |
 | `reservoir` | green (34A853) reservoir |
 | `bg` | red (EA4335) blood drop |
-| `sensor` | `SENSOR` in narrow letters, yellow (FFE000) |
+| `sensor_change` | `! SENSOR !` in narrow letters, red (EA4335): the pump's replace-sensor alert |
+| `sensor` | `SENSOR` in narrow letters, yellow (FFE000): the sensor runs out within a few hours; not shown next to `sensor_change` |
 | `set` | `SET`, yellow (FFE000) |
 
 - Every alert plays once, then the rotation moves on. Without auto-cycle they
@@ -110,7 +111,10 @@ Highest priority first:
 1. **Update:** progress in %, then `REBOOT`, in teal.
 2. **Boot:** the pixel pumpkin, then `Pumpkin` scrolls by (about 4 s).
 3. **Low lock** (on by default): a fresh reading below *low* pins the glucose
-   screen. No fades, buttons, previews or address while it lasts.
+   screen. No fades, buttons, previews or address while it lasts; the
+   dashboard says so under its mirror and greys out previous/next. Once the
+   reading is back above *low*, glucose gets a full turn and the rotation
+   goes on from there.
 4. **Previews** from the dashboard: a pet pose, glucose value or the alerts
    (each alert once). Never over an urgent value.
 5. **Address:** `Visit keuken.local or 192.168.0.12` (hold the middle button,

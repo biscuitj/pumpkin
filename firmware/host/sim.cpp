@@ -449,6 +449,7 @@ int main(int argc, char** argv) {
             res.body = std::move(out.body);
             if (!out.etag.empty()) res.headers["ETag"] = out.etag;
             if (out.screen) res.headers["X-Screen"] = out.screen;
+            if (out.hold) res.headers["X-Hold"] = out.hold;
             res.headers["Cache-Control"] = "no-store";
             return;
         }

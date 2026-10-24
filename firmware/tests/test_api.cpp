@@ -219,6 +219,25 @@ TEST(api_pet_sprites) {
     CHECK_STR(a.doc["colors"]["O"].as<const char*>(), "#ff9d48");
 }
 
+TEST(api_low_lock_is_reported) {
+    Api a;
+    a.app.mirror.lowLocked = true;
+    CHECK_EQ(a.call("GET", "/api/display/frame"), 204);
+    CHECK_STR(a.res.hold ? a.res.hold : "", "low");
+    CHECK_EQ(a.call("POST", "/api/display/next"), 409);
+    CHECK_STR(a.doc["field"].as<const char*>(), "low_lock");
+    CHECK(!a.app.commands.next);
+    CHECK_EQ(a.call("POST", "/api/display/preview", R"({"screen":"pet","pet":"hoot","range":"low"})"), 409);
+    CHECK(!a.app.commands.preview);
+    a.app.mirror.lowLocked = false;
+    a.app.mirror.urgent = true;
+    CHECK_EQ(a.call("POST", "/api/display/prev"), 204);  // the buttons still work over an urgent high
+    CHECK_EQ(a.call("POST", "/api/display/preview", R"({"screen":"alerts"})"), 409);
+    a.app.mirror.urgent = false;
+    CHECK_EQ(a.call("GET", "/api/display/frame"), 204);
+    CHECK(a.res.hold == nullptr);
+}
+
 TEST(api_preview_and_buttons) {
     Api a;
     CHECK_EQ(a.call("POST", "/api/display/preview", R"({"screen":"pet","pet":"pip","range":"low"})"), 400);

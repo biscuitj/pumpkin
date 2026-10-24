@@ -24,6 +24,7 @@ struct HttpResponse {
     std::string body;
     std::string etag;
     const char* screen = nullptr;  // X-Screen header for the mirror
+    const char* hold = nullptr;    // X-Hold header: "low" during the low lock
 };
 
 // Fills `res`; returns false when the path isn't an API route at all.

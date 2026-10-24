@@ -161,7 +161,9 @@ void Engine::tick(const EngineInputs& in, EngineOutput& out) {
 
     // Auto-cycle
     if (lowLocked_) {
-        screenStart_ = now;  // a full turn for the current screen once the low is over
+        // Glucose gets a full turn once the low is over, then the rotation goes on from there.
+        current_ = Screen::Glucose;
+        screenStart_ = now;
     } else if (d.rotation.autoCycle && rotationCount_ > 1 && !previewActive_ && !addressActive_) {
         bool advance;
         if (current_ == Screen::Alerts) advance = needAdvance_;
@@ -589,10 +591,11 @@ void Engine::renderPet(const EngineInputs& in, Frame& f, bool previewing) {
 void Engine::renderAlerts(const EngineInputs& in, Frame& f) {
     const uint32_t now = in.now;
     const bool previewing = previewActive_ && preview_.kind == Preview::Alerts;
-    static const Warning kAll[] = {Warning::Suspended, Warning::Alert,  Warning::Battery, Warning::Reservoir,
-                                   Warning::Bg,        Warning::Sensor, Warning::Set};
+    static const Warning kAll[] = {Warning::Suspended, Warning::Alert, Warning::Battery,
+                                   Warning::Reservoir, Warning::Bg,    Warning::SensorChange,
+                                   Warning::Sensor,    Warning::Set};
     const Warning* items = previewing ? kAll : (in.data ? in.data->warnings : nullptr);
-    const int count = previewing ? 7 : (in.data ? in.data->warningCount : 0);
+    const int count = previewing ? (int)(sizeof(kAll) / sizeof(kAll[0])) : (in.data ? in.data->warningCount : 0);
 
     // (Re)entering the screen always starts with the first alert.
     if (alertsLastRender_ == 0 || now - alertsLastRender_ > 1000) {

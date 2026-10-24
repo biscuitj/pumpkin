@@ -224,6 +224,20 @@ TEST(bridge_reminders_url) {
     CHECK(!remindersClearUrl("https://x.dev/api", out, sizeof(out)));
 }
 
+TEST(parse_sensor_change_hides_yellow_sensor) {
+    const char* body = R"({"glucose":120,"timestamp":1,"warnings":["bg","sensor_change","sensor","set"]})";
+    BridgeData d;
+    CHECK(parseClock(body, strlen(body), d) == ParseResult::Ok);
+    CHECK_EQ(d.warningCount, 3);
+    CHECK(d.warnings[0] == Warning::Bg);
+    CHECK(d.warnings[1] == Warning::SensorChange);
+    CHECK(d.warnings[2] == Warning::Set);
+    const char* due = R"({"glucose":120,"timestamp":1,"warnings":["sensor"]})";
+    CHECK(parseClock(due, strlen(due), d) == ParseResult::Ok);
+    CHECK_EQ(d.warningCount, 1);
+    CHECK(d.warnings[0] == Warning::Sensor);
+}
+
 TEST(demo_covers_every_screen) {
     bool low = false, high = false, sport = false;
     bool seen[(int)Warning::Count] = {};

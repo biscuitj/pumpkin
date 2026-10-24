@@ -6,6 +6,7 @@ import { Segmented } from '../../ui/inputs';
 import { Notice } from '../../ui/Notice';
 import { Switch } from '../../ui/Switch';
 import { LiveTop } from '../display/LiveTop';
+import { tryOnClock } from '../display/Mirror';
 import { PetSprite } from './PetSprite';
 
 const PET_STYLES = [
@@ -20,7 +21,7 @@ const RANGES = [
   { range: 'high', label: 'Show high' },
 ] as const;
 
-const show = (body: Parameters<typeof previewOnClock>[0]) => void previewOnClock(body).catch(() => {});
+const show = (body: Parameters<typeof previewOnClock>[0]) => tryOnClock(() => previewOnClock(body));
 
 export function PetTab() {
   const hook = useDisplaySettings();

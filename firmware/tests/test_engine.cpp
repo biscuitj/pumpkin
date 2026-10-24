@@ -157,6 +157,13 @@ TEST(engine_low_lock_pins_glucose) {
     CHECK(r.out.screen == Screen::Glucose);  // buttons wait
     Preview p{Preview::Pet, PetId::Kiko, 0, 0};
     CHECK(!r.e.preview(p, r.t));
+    // Back in range: the rotation goes on from glucose, so next is time in range.
+    r.data.mgdl = 110;
+    r.data.timestamp++;
+    r.run(500);
+    r.e.next(r.t);
+    r.run(1500);
+    CHECK(r.out.screen == Screen::Tir);
 }
 
 TEST(engine_stale_reading_is_grey_and_warns_first) {

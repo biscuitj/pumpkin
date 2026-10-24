@@ -234,11 +234,17 @@ const WARNING_FOR = {
   battery_now: 'battery', battery_low: 'battery',
   reservoir_empty: 'reservoir', reservoir_low: 'reservoir',
   bg_required: 'bg',
-  sensor_change: 'sensor',
+  sensor_change: 'sensor_change',
   set_change: 'set',
 };
+// Remembered reminders (latches) whose clock warning differs from the latch id.
+const LATCH_WARNING = { sensor: 'sensor_change' };
 
-const WARNING_ORDER = ['suspended', 'warning', 'battery', 'reservoir', 'bg', 'sensor', 'set'];
+// `sensor` (yellow): the sensor runs out soon. `sensor_change` (red): the pump's
+// replace-sensor alert is on. `sensor_change` always comes with `sensor` too, so
+// firmware that doesn't know `sensor_change` still shows a sensor warning; firmware
+// that does shows only the red one.
+const WARNING_ORDER = ['suspended', 'warning', 'battery', 'reservoir', 'bg', 'sensor_change', 'sensor', 'set'];
 
 /**
  * Distinct clock warnings, fixed priority order: the pump's active alerts plus
@@ -246,9 +252,10 @@ const WARNING_ORDER = ['suspended', 'warning', 'battery', 'reservoir', 'bg', 'se
  * `suspend` (from suspendState): a pump stopped by hand shows the pause icon,
  * a SmartGuard auto-suspend the general warning.
  * `sensorDue` (from sensorExpiring): the sensor runs out soon, before the pump says so.
+ * A replace-sensor alert, active or remembered, is `sensor_change` (plus `sensor`).
  */
 export function clockWarnings(alerts, latchIds = [], suspend = null, sensorDue = false) {
-  const ids = new Set(latchIds);
+  const ids = new Set(latchIds.map((id) => LATCH_WARNING[id] || id));
   if (sensorDue) ids.add('sensor');
   for (const a of alerts || []) {
     const id = WARNING_FOR[a.category];
@@ -256,6 +263,7 @@ export function clockWarnings(alerts, latchIds = [], suspend = null, sensorDue =
   }
   if (suspend === 'manual') ids.add('suspended');
   if (suspend === 'auto') ids.add('warning');
+  if (ids.has('sensor_change')) ids.add('sensor');
   return WARNING_ORDER.filter((id) => ids.has(id));
 }
 

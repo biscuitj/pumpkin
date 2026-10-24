@@ -325,6 +325,7 @@ void getFrame(App& app, const HttpRequest& req, HttpResponse& res) {
     m.requestedAt = app.platform.millis();
     if (m.requestedAt == 0) m.requestedAt = 1;
     res.screen = screenName(m.screen);
+    if (m.lowLocked) res.hold = "low";
     if (!m.ready) return noContent(res, 204);
     char etag[24];
     snprintf(etag, sizeof(etag), "\"%lu\"", (unsigned long)m.sequence);
@@ -406,6 +407,9 @@ void postPreview(App& app, const HttpRequest& req, HttpResponse& res) {
     } else {
         return apiError(res, 400, "Unknown screen.", "screen");
     }
+    if (app.mirror.lowLocked)
+        return apiError(res, 409, "The clock stays on the low reading until it's back above Low.", "low_lock");
+    if (app.mirror.urgent) return apiError(res, 409, "Not while the reading is urgent.", "urgent");
     app.commands.preview = true;
     app.commands.p = p;
     accepted(res);
@@ -638,8 +642,12 @@ bool handleApi(App& app, const HttpRequest& req, HttpResponse& res) {
     if (is(req, "PATCH", "/api/display/settings")) return patchDisplay(app, req, res), true;
     if (is(req, "GET", "/api/display/frame")) return getFrame(app, req, res), true;
     if (is(req, "GET", "/api/display/pets")) return getPets(app, res), true;
-    if (is(req, "POST", "/api/display/next")) return app.commands.next = true, noContent(res), true;
-    if (is(req, "POST", "/api/display/prev")) return app.commands.prev = true, noContent(res), true;
+    if (is(req, "POST", "/api/display/next") || is(req, "POST", "/api/display/prev")) {
+        if (app.mirror.lowLocked)
+            return apiError(res, 409, "The clock stays on the low reading until it's back above Low.", "low_lock"), true;
+        (strcmp(req.path, "/api/display/next") == 0 ? app.commands.next : app.commands.prev) = true;
+        return noContent(res), true;
+    }
     if (is(req, "POST", "/api/display/preview")) return postPreview(app, req, res), true;
 
     if (is(req, "POST", "/api/alerts/clear")) return postClear(app, res), true;
