@@ -16,6 +16,24 @@ How versions work:
 
 ## [Unreleased]
 
+### Added
+- **Two sensor alerts.** Yellow `SENSOR` (`sensor`) in the hours before the
+  sensor ends, red `! SENSOR !` (`sensor_change`) while the pump's
+  replace-sensor alert is on or remembered. The bridge sends `sensor` next to
+  `sensor_change`, so firmware before this still shows the yellow one; this
+  firmware shows only the red one.
+
+### Fixed
+- Bridge: **sensor reminder stuck after a sensor change.** With an expired
+  sensor there's no live sensor value, so the reminder took its baseline from
+  the first reading back, the new sensor's (~167 h), and could only end after
+  72 h (23 Oct). The sensor reminder now ends on a warm-up after the alert:
+  only a new sensor warms up, and every SG in the CareLink data carries the
+  sensor state, so a warm-up between polls is seen too.
+- Bridge: a reminder that starts while the pump is out of range takes its
+  baseline from the last live value before the alert (`snapshot.seen`), so a
+  battery or reservoir swapped meanwhile still ends it.
+
 ## [1.0.0] - 2026-10-18
 
 The clock firmware is rewritten around a new dashboard and reads only the
